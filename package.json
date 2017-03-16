@@ -1,0 +1,27 @@
+{
+  "name": "copernicus",
+  "version": "0.0.0",
+  "description": "A tool to allow MongoDB schema load simulation and exploration for sizing and optimizing schema design.",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha test/*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/christkv/copernicus.git"
+  },
+  "keywords": [
+    "mongodb",
+    "schmea",
+    "design",
+    "simulation",
+    "exploration",
+    "sizing"
+  ],
+  "author": "Christian Kvalheim",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/christkv/copernicus/issues"
+  },
+  "homepage": "https://github.com/christkv/copernicus#readme"
+}
