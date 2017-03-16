@@ -1,6 +1,6 @@
 {
   "name": "copernicus",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "A tool to allow MongoDB schema load simulation and exploration for sizing and optimizing schema design.",
   "main": "index.js",
   "scripts": {
@@ -23,5 +23,12 @@
   "bugs": {
     "url": "https://github.com/christkv/copernicus/issues"
   },
-  "homepage": "https://github.com/christkv/copernicus#readme"
+  "homepage": "https://github.com/christkv/copernicus#readme",
+  "dependencies": {
+    "co": "^4.6.0",
+    "command-line-args": "^4.0.2",
+    "command-line-usage": "^4.0.0",
+    "mongodb": "^2.2.24",
+    "request": "^2.81.0"
+  }
 }
