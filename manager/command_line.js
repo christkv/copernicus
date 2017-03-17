@@ -8,6 +8,21 @@ const cmdLineOptions = [
     type: Boolean,
     group: 'all'
   },
+  {
+    name: 'host',
+    description: `host or ip address to bind to. (default: all interfaces)`,
+    type: String,
+    typeLabel: '[arg]',
+    group: 'all'
+  },
+  {
+    name: 'port',
+    description: `tcp port to bind too (default: 51000)`,
+    type: Number,
+    defaultValue: 52000,
+    typeLabel: '[arg]',
+    group: 'all'
+  },
   // {
   //   name: 'host',
   //   description: `server to connect to.`,

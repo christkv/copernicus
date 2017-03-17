@@ -58,6 +58,7 @@ const registerIntervalMS = 1000;
 
 //We need a function which handles requests and send response
 function handleRequest(request, response){
+  console.log("------- recevied message")
   response.end('It Works!! Path Hit: ' + request.url);
 }
 
@@ -100,6 +101,7 @@ async function registerAgent() {
         }
       } 
     });
+
     console.log(`agent registered successfully with monitor at ${monitorHost}:${monitorPort}`);
     return result;
   } catch(err) {
