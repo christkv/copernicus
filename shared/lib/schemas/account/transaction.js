@@ -18,167 +18,127 @@ class Transaction {
   /*
    * Create a new transaction mongodb document
    */
-  create(options) {
-    options = options || {};
-    var self = this;
+  async create(options = {}) {
+    // Insert the initial transaction
+    var r = await this.transactions.insertOne({
+        _id : this.id
+      , source: this.fromAccount.name
+      , destination: this.toAccount.name
+      , amount: this.amount
+      , state: Transaction.INITIAL
+    }, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function*() {
-        // Insert the initial transaction
-        var r = yield self.transactions.insertOne({
-            _id : self.id
-          , source: self.fromAccount.name
-          , destination: self.toAccount.name
-          , amount: self.amount
-          , state: Transaction.INITIAL
-        }, options);
-
-        if(r.result.writeConcernError) return reject(r.result.writeConcernError);
-        self.state = Transaction.INITIAL;
-        resolve();
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    if(r.result.writeConcernError) throw r.result.writeConcernError;
+    this.state = Transaction.INITIAL;
   }
 
   /*
    * Apply transaction to the accounts
    */
-  apply(options) {
-    options = options || {};
-    var self = this;
+  async apply(options = {}) {
+    // Advance the state of the transaction to pending
+    await this.advance(options)
 
-    return new Promise(function(resolve, reject) {
-      co(function*() {
-        // Advance the state of the transaction to pending
-        yield self.advance(options)
+    if(options.fail == 'failBeforeApply') {
+      await this.cancel();
+      throw new Error('failed to apply transaction');
+    }
 
-        if(options.fail == 'failBeforeApply') {
-          yield self.cancel();
-          return reject(new Error('failed to apply transaction'));
-        }
+    try {
+      // Attempt to debit amount from the first account
+      await this.fromAccount.debit(this.id, this.amount, options);
 
-        try {
-          // Attempt to debit amount from the first account
-          yield self.fromAccount.debit(self.id, self.amount, options);
+      if(options.fail == 'failAfterFirstApply') {
+        await reverse(this);
+        throw new Error('failed to apply transaction to both accounts');
+      }
 
-          if(options.fail == 'failAfterFirstApply') {
-            yield reverse(self);
-            return reject(new Error('failed to apply transaction to both accounts'));
-          }
+      // Attempt to credit the second account
+      await this.toAccount.credit(this.id, this.amount, options);
 
-          // Attempt to credit the second account
-          yield self.toAccount.credit(self.id, self.amount, options);
+      if(options.fail == 'failAfterApply') {
+        await reverse(this);
+        throw new Error('failed after applying transaction to both accounts');
+      }
 
-          if(options.fail == 'failAfterApply') {
-            yield reverse(self);
-            return reject(new Error('failed after applying transaction to both accounts'));
-          }
+      // Correctly set transaction to committed
+      await this.advance(options);
+    } catch(err) {
+      await reverse(this);
+      throw err;
+    }
 
-          // Correctly set transaction to committed
-          yield self.advance(options);
-        } catch(err) {
-          yield reverse(self);
-          return reject(err);
-        }
+    // Clear out the applied transaction on the first account
+    await this.fromAccount.clear(this.id, options);
 
-        // Clear out the applied transaction on the first account
-        yield self.fromAccount.clear(self.id, options);
+    // Fail after the transaction was commited
+    if(options.fail == 'failAfterCommit') {
+      throw new Error(f('failed to clear transaction with %s from account %s', this.id, this.fromAccount.name));
+    }
 
-        // Fail after the transaction was commited
-        if(options.fail == 'failAfterCommit') {
-          return reject(new Error(f('failed to clear transaction with %s from account %s', self.id, self.fromAccount.name)));
-        }
-
-        // Clear out the applied transaction on the second account
-        yield self.toAccount.clear(self.id, options);
-        // Advance the transaction to done
-        yield self.advance(options);
-        // Finished
-        resolve();
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    // Clear out the applied transaction on the second account
+    await this.toAccount.clear(this.id, options);
+    // Advance the transaction to done
+    await this.advance(options);
   }
 
   /*
    * Advance the transaction to the next step
    */
-  advance(options) {
-    options = options || {};
-    var self = this;
+  async advance(options = {}) {
+    if(this.state == Transaction.INITIAL) {
+      var r = await this.transactions.updateOne({_id: this.id, state: Transaction.INITIAL}, {$set : {state: Transaction.PENDING}}, options);
+      if(r.result.writeConcernError)
+        return reject(r.result.writeConcernError);
 
-    return new Promise(function(resolve, reject) {
-      co(function*() {
-        if(self.state == Transaction.INITIAL) {
-          var r = yield self.transactions.updateOne({_id: self.id, state: Transaction.INITIAL}, {$set : {state: Transaction.PENDING}}, options);
-          if(r.result.writeConcernError)
-            return reject(r.result.writeConcernError);
+      if(r.result.nUpdated == 0) {
+        throw new Error(f('no initial state transaction found for %s', this.id));
+      }
 
-          if(r.result.nUpdated == 0)
-            return reject(new Error(f('no initial state transaction found for %s', self.id)));
+      this.state = Transaction.PENDING;
+    } else if(this.state == Transaction.PENDING) {
+      var r = await this.transactions.updateOne({_id: this.id, state: Transaction.PENDING}, {$set : {state: Transaction.COMMITTED}}, options);
+      if(r.result.writeConcernError) {
+        throw r.result.writeConcernError;
+      }
 
-          self.state = Transaction.PENDING;
-        } else if(self.state == Transaction.PENDING) {
-          var r = yield self.transactions.updateOne({_id: self.id, state: Transaction.PENDING}, {$set : {state: Transaction.COMMITTED}}, options);
-          if(r.result.writeConcernError)
-            return reject(r.result.writeConcernError);
+      if(r.result.nUpdated == 0) {
+        throw new Error(f('no pending state transaction found for %s', this.id));
+      }
 
-          if(r.result.nUpdated == 0)
-            return reject(new Error(f('no pending state transaction found for %s', self.id)));
+      this.state = Transaction.COMMITTED;
+    } else if(this.state == Transaction.COMMITTED) {
+      var r = await this.transactions.updateOne({_id: this.id, state: Transaction.COMMITTED}, {$set : {state: Transaction.DONE}}, options);
+      if(r.result.writeConcernError) {
+        throw r.result.writeConcernError;
+      }
 
-          self.state = Transaction.COMMITTED;
-        } else if(self.state == Transaction.COMMITTED) {
-          var r = yield self.transactions.updateOne({_id: self.id, state: Transaction.COMMITTED}, {$set : {state: Transaction.DONE}}, options);
-          if(r.result.writeConcernError)
-            return reject(r.result.writeConcernError);
+      if(r.result.nUpdated == 0) {
+        throw new Error(f('no pending state transaction found for %s', this.id));
+      }
 
-          if(r.result.nUpdated == 0)
-            return reject(new Error(f('no pending state transaction found for %s', self.id)));
-
-          self.state = Transaction.DONE;
-        }
-
-        resolve();
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+      this.state = Transaction.DONE;
+    }
   }
 
   /*
    * Cancel the transaction
    */
-  cancel(options) {
-    options = options || {};
-    var self = this;
+  async cancel(options = {}) {
+    var r = await this.transactions.updateOne({_id: this.id}, {$set : {state: 'canceled'}}, options);
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-    return new Promise(function(resolve, reject) {
-      co(function*() {
-        var r = yield self.transactions.updateOne({_id: self.id}, {$set : {state: 'canceled'}}, options);
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        if(r.result.nUpdated == 0)
-          return reject(new Error(f('no transaction found for %s', self.id)));
-
-        resolve();
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    if(r.result.nUpdated == 0) {
+      throw new Error(f('no transaction found for %s', this.id));
+    }
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(transactionCollection) {
-    return new Promise(function(resolve, reject) {
-      resolve();
-    });
-  }
+  static async createOptimalIndexes(transactionCollection) {}
 }
 
 Transaction.INITIAL = 'initial';
@@ -190,33 +150,26 @@ Transaction.CANCELED = 'canceled';
 /*
  * Reverse the transactions on the current account if it exists
  */
-var reverse = function(self, options) {
-  options = options || {};
+async function reverse(self, options = {}) {
+  // Reverse the debit
+  var r = await self.accounts.updateOne(
+    {name: self.fromAccount.name, pendingTransactions: {$in: [self.id]}
+  }, {$inc: {balance: self.amount}, $pull: {pendingTransactions: self.id}}, options);
 
-  return new Promise(function(resolve, reject) {
-    co(function*() {
-      // Reverse the debit
-      var r = yield self.accounts.updateOne(
-        {name: self.fromAccount.name, pendingTransactions: {$in: [self.id]}
-      }, {$inc: {balance: self.amount}, $pull: {pendingTransactions: self.id}}, options);
+  if(r.result.writeConcernError) {
+    throw r.result.writeConcernError;
+  }
 
-      if(r.result.writeConcernError)
-        return reject(r.result.writeConcernError);
+  // Reverse the credit (if any)
+  var r = await self.accounts.updateOne(
+    {name: self.toAccount.name, pendingTransactions: {$in: [self.id]}
+  }, {$inc: {balance: -self.amount}, $pull: {pendingTransactions: self.id}}, options);
+  if(r.result.writeConcernError) {
+    throw r.result.writeConcernError;
+  }
 
-      // Reverse the credit (if any)
-      var r = yield self.accounts.updateOne(
-        {name: self.toAccount.name, pendingTransactions: {$in: [self.id]}
-      }, {$inc: {balance: -self.amount}, $pull: {pendingTransactions: self.id}}, options);
-      if(r.result.writeConcernError)
-        return reject(r.result.writeConcernError);
-
-      // Finally cancel the transaction
-      yield self.cancel(options);
-      resolve();
-    }).catch(function(err) {
-      reject(err);
-    });
-  });
+  // Finally cancel the transaction
+  await self.cancel(options);
 }
 
 module.exports = Transaction;
