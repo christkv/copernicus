@@ -1,8 +1,5 @@
 "use strict";
 
-var f = require('util').format,
-  co = require('co');
-
 /*
  * Create a new metadata instance
  */
@@ -16,29 +13,21 @@ class MetaData {
   /*
    * Create a new metadata document on mongodb
    */
-  create() {
-    var self = this;
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert the metadata
-        yield self.metadatas.insertOne({
-            _id: self.id
-          , metadata: self.metadata
-        });
-
-        resolve(self);
-      }).catch(reject);
+  async create() {
+    // Insert the metadata
+    await this.metadatas.insertOne({
+        _id: this.id
+      , metadata: this.metadata
     });
+
+    return this;
   }
 
   /*
    * Search using metadata fields
    */
-  static findByFields(collections, fields, options) {
-    var self = this;
+  static async findByFields(collections, fields, options = {}) {
     var queryParts = [];
-    options = options || {};
 
     for(var name in fields) {
       queryParts.push({$elemMatch: {key: name, value: fields[name] }});
@@ -55,29 +44,18 @@ class MetaData {
       cursor.setReadPreference(options.readPreference);
     }
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Execute the query
-        var docs = yield cursor.toArray();
-        docs.map(function(x) {
-          return new MetaData(collections, x._id, x.metadata);
-        });
-
-        resolve(docs);
-      }).catch(reject);
+    // Execute the query
+    var docs = await cursor.toArray();
+    return docs.map((x) => {
+      return new MetaData(collections, x._id, x.metadata);
     });
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        yield collections['metadatas'].ensureIndex({"metadata.key": 1, "metadata.value": 1});
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
+    await collections['metadatas'].ensureIndex({"metadata.key": 1, "metadata.value": 1});
   }
 }
 
