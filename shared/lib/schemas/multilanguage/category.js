@@ -1,8 +1,5 @@
 "use strict";
 
-var f = require('util').format,
-  co = require('co');
-
 /*
  * Create a new category instance
  */
@@ -22,142 +19,113 @@ class Category {
   /*
    * Add a new name local to the category, update relevant products
    */
-  addLocal(local, name, options) {
-    var self = this;
-    options = options || {};
+  async addLocal(local, name, options = {}) {
+    // Build set statement
+    var setStatement = {}
+    // Set the new local
+    setStatement[`names.${local}`] = name;
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Build set statement
-        var setStatement = {}
-        // Set the new local
-        setStatement[f('names.%s', local)] = name;
+    // Update the category with the new local for the name
+    var r = await this.categories.updateOne({
+      _id: this.id
+    }, {
+      $set: setStatement
+    }, options);
 
-        // Update the category with the new local for the name
-        var r = yield self.categories.updateOne({
-          _id: self.id
-        }, {
-          $set: setStatement
-        }, options);
+    if(r.modifiedCount == 0 && r.n == 0) {
+      throw new Error(`could not modify category with id ${this.id}`);
+    }
 
-        if(r.modifiedCount == 0 && r.n == 0)
-          return reject(new Error(f('could not modify category with id %s', self.id)));
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
+    // Set up the update statement
+    var updateStatement = {};
+    updateStatement[`categories.$.names.${local}`] = name;
 
-        // Set up the update statement
-        var updateStatement = {};
-        updateStatement[f('categories.$.names.%s', local)] = name;
+    // Update all the products that have the category cached
+    var r = await this.products.updateMany({
+      'categories._id': this.id
+    }, {
+      $set: updateStatement
+    }, options);
 
-        // Update all the products that have the category cached
-        var r = yield self.products.updateMany({
-          'categories._id': self.id
-        }, {
-          $set: updateStatement
-        }, options);
-
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        resolve();
-      }).catch(reject);
-    });
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
   }
 
   /*
    * Remove a new name local from the category, update relevant products
    */
-  removeLocal(local, options) {
-    var self = this;
-    options = options || {};
-
+  async removeLocal(local, options = {}) {
     // Build set statement
     var setStatement = {}
     // UnSet the new local
-    setStatement[f('names.%s', local)] = '';
+    setStatement[`names.${local}`] = '';
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Update the category with the new local for the name
-        var r = yield self.categories.updateOne({
-          _id: self.id
-        }, {
-          $unset: setStatement
-        }, options);
+    // Update the category with the new local for the name
+    var r = await this.categories.updateOne({
+      _id: this.id
+    }, {
+      $unset: setStatement
+    }, options);
 
-        if(r.modifiedCount == 0 && r.n == 0)
-          return reject(new Error(f('could not modify category with id %s', self.id)));
+    if(r.modifiedCount == 0 && r.n == 0) {
+      throw new Error(`could not modify category with id ${this.id}`);
+    }
 
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-        // Set up the update statement
-        var updateStatement = {};
-        updateStatement[f('categories.$.names.%s', local)] = '' ;
+    // Set up the update statement
+    var updateStatement = {};
+    updateStatement[`categories.$.names.${local}`] = '' ;
 
-        // Update all the products that have the category cached
-        var r = yield self.products.updateMany({
-          'categories._id': self.id
-        }, {
-          $unset: updateStatement
-        }, options);
+    // Update all the products that have the category cached
+    var r = await this.products.updateMany({
+      'categories._id': this.id
+    }, {
+      $unset: updateStatement
+    }, options);
 
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        resolve();
-      }).catch(reject);
-    });
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
   }
 
   /*
    * Create a new mongodb category document
    */
-  create(options) {
-    var self = this;
-    options = options || {};
+  async create(options = {}) {
+    // Insert a new category
+    var r = await this.categories.insertOne({
+        _id: this.id
+      , names: this.names
+    }, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert a new category
-        var r = yield self.categories.insertOne({
-            _id: self.id
-          , names: self.names
-        }, options);
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        resolve(self);
-      }).catch(reject);
-    });
+    return this;
   }
 
   /*
    * Reload the category information
    */
-  reload() {
-    var self = this;
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var doc = yield self.categories.findOne({_id: self.id});
-        self.names = doc.names;
-        resolve(self);
-      }).catch(reject);
-    });
+  async reload() {
+    var doc = await this.categories.findOne({_id: this.id});
+    this.names = doc.names;
+    return this;
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
   }
 }
 

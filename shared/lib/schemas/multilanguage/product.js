@@ -1,7 +1,5 @@
 "use strict";
 
-var co = require('co');
-
 /*
  * Create a new product instance
  */
@@ -18,54 +16,37 @@ class Product {
   /*
    * Create a new mongodb product document
    */
-  create() {
-    var self = this;
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert a new category
-        yield self.products.insertOne({
-            _id: self.id
-          , name: self.name
-          , cost: self.cost
-          , currency: self.currency
-          , categories: self.categories
-        });
-
-        resolve(self);
-      }).catch(reject);
+  async create() {
+    // Insert a new category
+    await this.products.insertOne({
+        _id: this.id
+      , name: this.name
+      , cost: this.cost
+      , currency: this.currency
+      , categories: this.categories
     });
+    
+    return this;
   }
 
   /*
    * Reload the product information
    */
-  reload() {
-    var self = this;
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var doc = yield self.products.findOne({_id: self.id});
-        self.id = doc.id;
-        self.name = doc.name;
-        self.price = doc.price;
-        self.currency = doc.currency;
-        self.categories = doc.categories;
-        resolve(self);
-      }).catch(reject);
-    });
+  async reload() {
+    var doc = await this.products.findOne({_id: this.id});
+    this.id = doc.id;
+    this.name = doc.name;
+    this.price = doc.price;
+    this.currency = doc.currency;
+    this.categories = doc.categories;
+    return this;
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        yield collections['products'].ensureIndex({'categories._id':1});
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
+    await collections['products'].ensureIndex({'categories._id':1});
   }
 }
 
