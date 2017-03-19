@@ -1,14 +1,7 @@
 "use strict";
 
 var Transaction = require('./transaction')
-  , co = require('co')
   , ObjectID = require('mongodb').ObjectID;
-
-var clone = function(obj) {
-  var o = {};
-  for(var name in obj) o[name] = obj[name];
-  return o;
-}
 
 class Account {
   constructor(collections, name, balance) {

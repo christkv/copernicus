@@ -1,8 +1,7 @@
 "use strict";
 
 var f = require('util').format,
-  ObjectID = require('mongodb').ObjectID,
-  co = require('co');
+  ObjectID = require('mongodb').ObjectID;
 
 class Inventory {
   constructor(collections, id, quantity) {

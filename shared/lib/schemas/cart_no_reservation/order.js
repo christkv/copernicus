@@ -1,8 +1,7 @@
 "use strict";
 
 var f = require('util').format,
-    ObjectID = require('mongodb').ObjectID,
-    co = require('co');
+    ObjectID = require('mongodb').ObjectID;
 
 class Order {
   constructor(collections, id, shipping, payment, products) {

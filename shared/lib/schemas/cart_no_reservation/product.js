@@ -1,7 +1,6 @@
 "use strict";
 
-var ObjectID = require('mongodb').ObjectID,
-  co = require('co');
+var ObjectID = require('mongodb').ObjectID;
 
 class Product {
   constructor(collections, id, name, properties) {

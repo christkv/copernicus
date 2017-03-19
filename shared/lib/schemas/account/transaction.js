@@ -1,7 +1,6 @@
 "use strict";
 
 var ObjectID = require('mongodb').ObjectID
-  , co = require('co')
   , f = require('util').format;
 
 class Transaction {

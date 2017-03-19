@@ -1,8 +1,16 @@
 "use strict";
 
-var co = require('co');
+const assert = require('assert');
+const {
+  ObjectID,
+  MongoClient
+} = require('mongodb');
+const Cart = require('../lib/schemas/cart_reservation/cart')
+  , Product = require('../lib/schemas/cart_reservation/product')
+  , Inventory = require('../lib/schemas/cart_reservation/inventory')
+  , Order = require('../lib/schemas/cart_reservation/order');
 
-var createProducts = function(collections) {
+async function createProducts(collections) {
   var products = [
       { _id: 1, name: 'product 1', price: 100}
     , { _id: 2, name: 'product 2', price: 200}
@@ -29,23 +37,13 @@ var createProducts = function(collections) {
     , inventories: collections['inventories']
   }
 
-  return new Promise(function(resolve, reject) {
-    co(function* () {
-      // Insert all the products
-      yield collections['products'].insertMany(products);
-      // Insert all the associated product inventories
-      yield collections['inventories'].insertMany(inventories);
-      resolve();
-    }).catch(reject);
-  });
+  // Insert all the products
+  await collections['products'].insertMany(products);
+  // Insert all the associated product inventories
+  await collections['inventories'].insertMany(inventories);
 }
 
-var setup = function(db, callback) {
-  var Cart = require('../../lib/common/schemas/cart_reservation/cart')
-    , Product = require('../../lib/common/schemas/cart_reservation/product')
-    , Inventory = require('../../lib/common/schemas/cart_reservation/inventory')
-    , Order = require('../../lib/common/schemas/cart_reservation/order');
-
+async function setup(db) {
   // All the collections used
   var collections = {
       products: db.collection('products')
@@ -54,360 +52,250 @@ var setup = function(db, callback) {
     , inventories: db.collection('inventories')
   }
 
-  return new Promise(function(resolve, reject) {
-    co(function* () {
-      // Drop all the collections
-      try { collections['products'].drop(); } catch(err) {}
-      try { collections['carts'].drop(); } catch(err) {}
-      try { collections['inventories'].drop(); } catch(err) {}
-      try { collections['orders'].drop(); } catch(err) {}
+  try { await collections['products'].drop(); } catch(err) {}
+  try { await collections['carts'].drop(); } catch(err) {}
+  try { await collections['inventories'].drop(); } catch(err) {}
+  try { await collections['orders'].drop(); } catch(err) {}
 
-      // Create all indexes
-      yield Cart.createOptimalIndexes(collections);
-      yield Product.createOptimalIndexes(collections);
-      yield Inventory.createOptimalIndexes(collections);
-      yield Order.createOptimalIndexes(collections);
-      yield createProducts(collections);
+  await Cart.createOptimalIndexes(collections);
+  await Product.createOptimalIndexes(collections);
+  await Inventory.createOptimalIndexes(collections);
+  await Order.createOptimalIndexes(collections);
+  await createProducts(collections);
+}
 
-      resolve();
-    }).catch(reject);
+describe('Cart with reservation test', () => {
+  it('Should correctly add an item to the cart and checkout the cart successfully', async () => {
+    // Connect to mongodb
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
+
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , orders: db.collection('orders')
+      , carts: db.collection('carts')
+      , inventories: db.collection('inventories')
+    }
+
+    // Cleanup
+    await setup(db);
+
+    // Create cart
+    var cart = new Cart(collections);
+    await cart.create();
+
+    // Fetch a product
+    var product = new Product(collections, 1);
+    await product.reload();
+
+    // Add a product to the cart
+    await cart.add(product, 1);
+    assert.equal(cart.products.length, 1);
+
+    // Checkout the cart
+    await cart.checkout({
+        shipping: {}, payment: {}
+      });
+
+    // Validate the state of the cart and product
+    var doc = await collections['inventories'].findOne({_id: 1});
+    assert.equal(99, doc.quantity);
+    assert.equal(0, doc.reservations);
+
+    // Validate the state of the cart
+    var doc = await collections['carts'].findOne({_id: cart.id});
+    assert.equal('completed', doc.state);
+
+    db.close();
   });
 
-}
+  it('Should correctly add an item to the cart but fail to reserve the item in the inventory due to no availability', async () => {
+    // Connect to mongodb
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
 
-exports['Should correctly add an item to the cart and checkout the cart successfully'] = {
-  metadata: { requires: { } },
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , orders: db.collection('orders')
+      , carts: db.collection('carts')
+      , inventories: db.collection('inventories')
+    }
 
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var ObjectID = configuration.require.ObjectID()
-      , MongoClient = configuration.require.MongoClient
-      , Cart = require('../../lib/common/schemas/cart_reservation/cart')
-      , Product = require('../../lib/common/schemas/cart_reservation/product')
-      , Inventory = require('../../lib/common/schemas/cart_reservation/inventory')
-      , Order = require('../../lib/common/schemas/cart_reservation/order');
+    // Cleanup
+    await setup(db);
 
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
+    // Create cart
+    var cart = new Cart(collections);
+    await cart.create();
 
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , orders: db.collection('orders')
-        , carts: db.collection('carts')
-        , inventories: db.collection('inventories')
-      }
+    // Fetch a product
+    var product = new Product(collections, 1);
+    await product.reload();
 
-      // Cleanup
-      yield setup(db);
-
-      // Create cart
-      var cart = new Cart(collections);
-      yield cart.create();
-
-      // Fetch a product
-      var product = new Product(collections, 1);
-      yield product.reload();
-
+    try {
       // Add a product to the cart
-      yield cart.add(product, 1);
-      test.equal(cart.products.length, 1);
+      await cart.add(product, 1000);
+      reject(new Error('should not reach this'));
+    } catch(err) {}
 
-      // Checkout the cart
-      yield cart.checkout({
-          shipping: {}, payment: {}
-        });
+    // Retrieve the cart
+    var doc = await collections['carts'].findOne({_id: cart.id});
+    assert.equal(0, doc.products.length);
+    assert.equal('active', doc.state);
 
-      // Validate the state of the cart and product
-      var doc = yield collections['inventories'].findOne({_id: 1});
-      test.equal(99, doc.quantity);
-      test.equal(0, doc.reservations);
+    db.close();
+  });
 
-      // Validate the state of the cart
-      var doc = yield collections['carts'].findOne({_id: cart.id});
-      test.equal('completed', doc.state);
+  it('Should correctly add an item to the cart but fail to reserve the item in the inventory', async () => {
+    // Connect to mongodb
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
 
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , orders: db.collection('orders')
+      , carts: db.collection('carts')
+      , inventories: db.collection('inventories')
+    }
 
-exports['Should correctly add an item to the cart but fail to reserve the item in the inventory'] = {
-  metadata: { requires: { } },
+    // Cleanup
+    await setup(db);
 
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var ObjectID = configuration.require.ObjectID()
-      , MongoClient = configuration.require.MongoClient
-      , Cart = require('../../lib/common/schemas/cart_reservation/cart')
-      , Product = require('../../lib/common/schemas/cart_reservation/product')
-      , Inventory = require('../../lib/common/schemas/cart_reservation/inventory')
-      , Order = require('../../lib/common/schemas/cart_reservation/order');
+    // Create cart
+    var cart = new Cart(collections);
+    await cart.create();
 
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
+    // Fetch a product
+    var product = new Product(collections, 1);
+    await product.reload();
 
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , orders: db.collection('orders')
-        , carts: db.collection('carts')
-        , inventories: db.collection('inventories')
-      }
+    // Add a product to the cart
+    async function addProductAndValidate(cart) {
+      await cart.add(product, 2);
 
-      // Cleanup
-      yield setup(db);
+      // Validate cart and inventory
+      var doc = await collections['carts'].findOne({_id: cart.id});
+      assert.equal(1, doc.products.length);
+      assert.equal(2, doc.products[0].quantity);
 
-      // Create cart
-      var cart = new Cart(collections);
-      yield cart.create();
+      var doc = await collections['inventories'].findOne({_id: product.id});
+      assert.equal(1, doc.reservations.length);
+      assert.equal(98, doc.quantity);
+      assert.equal(cart.id.toString(), doc.reservations[0]._id.toString());
+      await updateProductAndValidate(cart);
+    }
 
-      // Fetch a product
-      var product = new Product(collections, 1);
-      yield product.reload();
+    // Update the quantity of a product
+    async function updateProductAndValidate(cart) {
+      // Update the amount of a product
+      await cart.update(product, 4);
 
+      // Validate cart and inventory
+      var doc = await collections['carts'].findOne({_id: cart.id});
+      assert.equal(1, doc.products.length);
+      assert.equal(4, doc.products[0].quantity);
+
+      var doc = await collections['inventories'].findOne({_id: product.id});
+      assert.equal(1, doc.reservations.length);
+      assert.equal(96, doc.quantity);
+      assert.equal(cart.id.toString(), doc.reservations[0]._id.toString());
+      assert.equal(4, doc.reservations[0].quantity);
+      await illegalQuantityAdjustment(cart);
+    }
+
+    // Illegal product quantity adjustment
+    async function illegalQuantityAdjustment(cart) {
       try {
-        // Add a product to the cart
-        yield cart.add(product, 1000);
+        // Fail to update due to not enough inventory available
+        await cart.update(product, 1000);
         reject(new Error('should not reach this'));
       } catch(err) {}
 
-      // Retrieve the cart
-      var doc = yield collections['carts'].findOne({_id: cart.id});
-      test.equal(0, doc.products.length);
-      test.equal('active', doc.state);
+      // Validate cart and inventory
+      var doc = await collections['carts'].findOne({_id: cart.id});
+      assert.equal(1, doc.products.length);
+      assert.equal(4, doc.products[0].quantity);
 
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
+      var doc = await collections['inventories'].findOne({_id: product.id});
+      assert.equal(1, doc.reservations.length);
+      assert.equal(cart.id.toString(), doc.reservations[0]._id.toString());
+      assert.equal(96, doc.quantity);
+      assert.equal(4, doc.reservations[0].quantity);
+      await removeProductAndValidate(cart);
+    }
 
-exports['Should correctly add an item to the cart but fail to reserve the item in the inventory'] = {
-  metadata: { requires: { } },
-
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var ObjectID = configuration.require.ObjectID()
-      , MongoClient = configuration.require.MongoClient
-      , Cart = require('../../lib/common/schemas/cart_reservation/cart')
-      , Product = require('../../lib/common/schemas/cart_reservation/product')
-      , Inventory = require('../../lib/common/schemas/cart_reservation/inventory')
-      , Order = require('../../lib/common/schemas/cart_reservation/order');
-
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
-
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , orders: db.collection('orders')
-        , carts: db.collection('carts')
-        , inventories: db.collection('inventories')
-      }
-
-      // Cleanup
-      yield setup(db);
-
-      // Create cart
-      var cart = new Cart(collections);
-      yield cart.create();
-
-      // Fetch a product
-      var product = new Product(collections, 1);
-      yield product.reload();
-
-      // Add a product to the cart
-      var addProductAndValidate = function() {
-        return new Promise(function(resolve, reject) {
-          co(function* () {
-            yield cart.add(product, 2);
-
-            // Validate cart and inventory
-            var doc = yield collections['carts'].findOne({_id: cart.id});
-            test.equal(1, doc.products.length);
-            test.equal(2, doc.products[0].quantity);
-
-            var doc = yield collections['inventories'].findOne({_id: product.id});
-            test.equal(1, doc.reservations.length);
-            test.equal(98, doc.quantity);
-            test.equal(cart.id.toString(), doc.reservations[0]._id.toString());
-            yield updateProductAndValidate();
-            resolve();
-          }).catch(function(err) {
-            process.nextTick(function() {throw err});
-          });
-        });
-      }
-
-      // Update the quantity of a product
-      var updateProductAndValidate = function(callback) {
-        return new Promise(function(resolve, reject) {
-          co(function* () {
-            // Update the amount of a product
-            yield cart.update(product, 4);
-
-            // Validate cart and inventory
-            var doc = yield collections['carts'].findOne({_id: cart.id});
-            test.equal(1, doc.products.length);
-            test.equal(4, doc.products[0].quantity);
-
-            var doc = yield collections['inventories'].findOne({_id: product.id});
-            test.equal(1, doc.reservations.length);
-            test.equal(96, doc.quantity);
-            test.equal(cart.id.toString(), doc.reservations[0]._id.toString());
-            test.equal(4, doc.reservations[0].quantity);
-            yield illegalQuantityAdjustment();
-            resolve();
-          }).catch(function(err) {
-            process.nextTick(function() {throw err});
-          });
-        });
-      }
-
-      // Illegal product quantity adjustment
-      var illegalQuantityAdjustment = function(callback) {
-        return new Promise(function(resolve, reject) {
-          co(function* () {
-            try {
-              // Fail to update due to not enough inventory available
-              yield cart.update(product, 1000);
-              reject(new Error('should not reach this'));
-            } catch(err) {}
-
-            // Validate cart and inventory
-            var doc = yield collections['carts'].findOne({_id: cart.id});
-            test.equal(1, doc.products.length);
-            test.equal(4, doc.products[0].quantity);
-
-            var doc = yield collections['inventories'].findOne({_id: product.id});
-            test.equal(1, doc.reservations.length);
-            test.equal(cart.id.toString(), doc.reservations[0]._id.toString());
-            test.equal(96, doc.quantity);
-            test.equal(4, doc.reservations[0].quantity);
-            yield removeProductAndValidate();
-            resolve();
-          }).catch(function(err) {
-            process.nextTick(function() {throw err});
-          });
-        });
-      }
-
-      var removeProductAndValidate = function(callback) {
-        return new Promise(function(resolve, reject) {
-          co(function* () {
-            // Remove product from cart
-            yield cart.remove(product);
-
-            // Validate cart and inventory
-            var doc = yield collections['carts'].findOne({_id: cart.id});
-            test.equal(0, doc.products.length);
-
-            var doc = yield collections['inventories'].findOne({_id: product.id});
-            test.equal(0, doc.reservations.length);
-            test.equal(100, doc.quantity);
-            resolve();
-          }).catch(function(err) {
-            process.nextTick(function() {throw err});
-          });
-        });
-      }
-
-      // Remove product and validate
-      yield addProductAndValidate();
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
-
-exports['Should correctly find expired carts and remove any reservations in them'] = {
-  metadata: { requires: { } },
-
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var ObjectID = configuration.require.ObjectID()
-      , MongoClient = configuration.require.MongoClient
-      , Cart = require('../../lib/common/schemas/cart_reservation/cart')
-      , Product = require('../../lib/common/schemas/cart_reservation/product')
-      , Inventory = require('../../lib/common/schemas/cart_reservation/inventory')
-      , Order = require('../../lib/common/schemas/cart_reservation/order');
-
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
-
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , orders: db.collection('orders')
-        , carts: db.collection('carts')
-        , inventories: db.collection('inventories')
-      }
-
-      // Cleanup
-      yield setup(db);
-
-      // Create cart
-      var cart = new Cart(collections);
-      yield cart.create();
-
-      // Fetch a product
-      var product = new Product(collections, 1);
-      yield product.reload();
-
-      // Add a product to the cart
-      var addProductAndValidate = function(callback) {
-        return new Promise(function(resolve, reject) {
-          co(function* () {
-            yield cart.add(product, 2);
-
-            // Validate cart and inventory
-            var doc = yield collections['carts'].findOne({_id: cart.id});
-            test.equal(1, doc.products.length);
-            test.equal(2, doc.products[0].quantity);
-
-            var doc = yield collections['inventories'].findOne({_id: product.id});
-            test.equal(1, doc.reservations.length);
-            test.equal(98, doc.quantity);
-            test.equal(cart.id.toString(), doc.reservations[0]._id.toString());
-            resolve();
-          }).catch(function(err) {
-            process.nextTick(function() {throw err});
-          });
-        });
-      }
-
-      yield addProductAndValidate();
-      // Set cart to expired
-      var r = yield collections['carts'].updateOne({_id: cart.id}, {$set: {state: 'expired'}});
-      test.equal(1, r.modifiedCount);
-
-      // Expire the cart
-      yield Cart.releaseExpired(collections);
+    async function removeProductAndValidate(cart) {
+      // Remove product from cart
+      await cart.remove(product);
 
       // Validate cart and inventory
-      var doc = yield db.collection('carts').findOne({_id: cart.id});
-      test.equal(1, doc.products.length);
+      var doc = await collections['carts'].findOne({_id: cart.id});
+      assert.equal(0, doc.products.length);
 
-      var doc = yield db.collection('inventories').findOne({_id: product.id});
-      test.equal(0, doc.reservations.length);
-      test.equal(100, doc.quantity);
+      var doc = await collections['inventories'].findOne({_id: product.id});
+      assert.equal(0, doc.reservations.length);
+      assert.equal(100, doc.quantity);
+    }
 
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
+    // Remove product and validate
+    await addProductAndValidate(cart);
+    db.close();
+  });
+
+  it('Should correctly find expired carts and remove any reservations in them', async () => {
+    // Connect to mongodb
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
+
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , orders: db.collection('orders')
+      , carts: db.collection('carts')
+      , inventories: db.collection('inventories')
+    }
+
+    // Cleanup
+    await setup(db);
+
+    // Create cart
+    var cart = new Cart(collections);
+    await cart.create();
+
+    // Fetch a product
+    var product = new Product(collections, 1);
+    await product.reload();
+
+    // Add a product to the cart
+    async function addProductAndValidate(cart) {
+      await cart.add(product, 2);
+
+      // Validate cart and inventory
+      var doc = await collections['carts'].findOne({_id: cart.id});
+      assert.equal(1, doc.products.length);
+      assert.equal(2, doc.products[0].quantity);
+
+      var doc = await collections['inventories'].findOne({_id: product.id});
+      assert.equal(1, doc.reservations.length);
+      assert.equal(98, doc.quantity);
+      assert.equal(cart.id.toString(), doc.reservations[0]._id.toString());
+    }
+
+    await addProductAndValidate(cart);
+    // Set cart to expired
+    var r = await collections['carts'].updateOne({_id: cart.id}, {$set: {state: 'expired'}});
+    assert.equal(1, r.modifiedCount);
+
+    // Expire the cart
+    await Cart.releaseExpired(collections);
+
+    // Validate cart and inventory
+    var doc = await db.collection('carts').findOne({_id: cart.id});
+    assert.equal(1, doc.products.length);
+
+    var doc = await db.collection('inventories').findOne({_id: product.id});
+    assert.equal(0, doc.reservations.length);
+    assert.equal(100, doc.quantity);
+
+    db.close();
+  });
+});

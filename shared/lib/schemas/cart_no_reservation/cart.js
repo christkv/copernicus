@@ -3,14 +3,7 @@
 var f = require('util').format,
   ObjectID = require('mongodb').ObjectID,
   Inventory = require('./inventory'),
-  Order = require('./order'),
-  co = require('co');
-
-var clone = function(obj) {
-  var o = {};
-  for(var name in obj) o[name] = obj[name];
-  return o;
-}
+  Order = require('./order');
 
 class Cart {
   constructor(collections, id) {
