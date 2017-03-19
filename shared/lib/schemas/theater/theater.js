@@ -21,59 +21,40 @@ class Theater {
   /*
    *  Create a new theater instance
    */
-  create(options) {
-    var self = this;
-    options = options || {};
+  async create(options = {}) {
+    var seatsAvailable = 0;
+    for(var i = 0; i < this.seats.length; i++) {
+      seatsAvailable += this.seats[i].length;
+    }
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var seatsAvailable = 0;
-        for(var i = 0; i < self.seats.length; i++) {
-          seatsAvailable += self.seats[i].length;
-        }
+    // Theater
+    var theater = {
+        _id: this.id
+      , name: this.name
+      , seats: this.seats
+      , seatsAvailable: seatsAvailable
+    }
 
-        // Theater
-        var theater = {
-            _id: self.id
-          , name: self.name
-          , seats: self.seats
-          , seatsAvailable: seatsAvailable
-        }
-
-        // Save the document
-        yield self.theaters.insertOne(theater, options);
-        resolve(self);
-      }).catch(reject);
-    });
+    // Save the document
+    await this.theaters.insertOne(theater, options);
+    return this;
   }
 
   /*
    *  Add a new screening session to the theater
    */
-  addSession(name, description, start, end, price, options) {
-    var self = this;
-    options = options || {};
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Create a new session
-        var session = new Session(self.collections, options.id == null ? new ObjectID() : options.id, self.id, name, description, start, end, price);
-        session = yield session.create(options);
-        self.sessions.push(session);
-        resolve(session);
-      }).catch(reject);
-    });
+  async addSession(name, description, start, end, price, options = {}) {
+    // Create a new session
+    var session = new Session(this.collections, options.id == null ? new ObjectID() : options.id, this.id, name, description, start, end, price);
+    session = await session.create(options);
+    this.sessions.push(session);
+    return session;
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
   }
 }
 

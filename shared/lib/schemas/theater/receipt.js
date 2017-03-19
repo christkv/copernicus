@@ -1,7 +1,5 @@
 "use strict";
 
-var co = require('co');
-
 /*
  * Create a new receipt instance
  */
@@ -15,34 +13,23 @@ class Receipt {
   /*
    * Create a new receipt mongod document
    */
-  create(options) {
-    var self = this;
-    options = options || {};
+  async create(options = {}) {
+    var r = await this.receipts.insertOne({
+        createdOn: new Date()
+      , reservations: this.reservations
+    }, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var r = yield self.receipts.insertOne({
-            createdOn: new Date()
-          , reservations: self.reservations
-        }, options);
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        resolve(self);
-      }).catch(reject);
-    });
+    return this;
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
   }
 }
 

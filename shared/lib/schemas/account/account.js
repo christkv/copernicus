@@ -65,7 +65,7 @@ class Account {
     }
 
     if(r.result.nUpdated == 0) {
-      throw new Error(f('failed to debit account %s the amount %s', this.name, amount));
+      throw new Error(`failed to debit account ${this.name} the amount ${amount}`);
     }
   }
 
@@ -84,7 +84,7 @@ class Account {
     }
 
     if(r.result.nUpdated == 0) {
-      throw new Error(f('failed to credit account %s the amount', this.name, amount));
+      throw new Error(`failed to credit account ${this.name} the amount ${amount}`);
     }
   }
 

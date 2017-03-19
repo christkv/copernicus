@@ -1,14 +1,5 @@
 "use strict";
 
-var f = require('util').format,
-  co = require('co');
-
-var clone = function(obj) {
-  var o = {};
-  for(var name in obj) o[name] = obj[name];
-  return o;
-}
-
 /*
  * Create a new Timeseries instance
  */
@@ -26,99 +17,80 @@ class TimeSeries {
   /*
    * Create a new timeseries bucket document on mongodb
    */
-  create(options) {
-    var self = this;
-    options = options || {};
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert the metadata
-        yield self.timeseries.insertOne({
-            _id: self.id
-          , tag: self.tag
-          , series: self.series || {}
-          , timestamp: self.timestamp
-          , modifiedOn: new Date()
-        }, options);
-
-        resolve(self);
-      }).catch(reject);
-    });
+  async create(options = {}) {
+    // Insert the metadata
+    await this.timeseries.insertOne({
+        _id: this.id
+      , tag: this.tag
+      , series: this.series || {}
+      , timestamp: this.timestamp
+      , modifiedOn: new Date()
+    }, options);
+    return this;
   }
 
   /*
    * Increment a measurement
    */
-  inc(time, measurement, options) {
-    var self = this;
-    options = options || {};
+  async inc(time, measurement, options = {}) {
+    // Update statement for time series
+    var updateStatement = {
+        $inc: {}
+      , $setOnInsert: {
+          tag: this.tag
+        , timestamp: this.timestamp
+        , resolution: this.resolution
+      }
+      , $set: {
+        modifiedOn: new Date()
+      }
+    };
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Update statement for time series
-        var updateStatement = {
-            $inc: {}
-          , $setOnInsert: {
-              tag: self.tag
-            , timestamp: self.timestamp
-            , resolution: self.resolution
-          }
-          , $set: {
-            modifiedOn: new Date()
-          }
-        };
+    // Handle the resolution
+    if(this.resolution == 'minute') {
+      updateStatement['$inc'][`series.${time.getSeconds()}`] = measurement;
+    } else if(this.resolution == 'hour') {
+      updateStatement['$inc'][`series.${time.getMinutes()}.${time.getSeconds()}`] = measurement;
+    } else if(this.resolution == 'day') {
+      updateStatement['$inc'][`series.${time.getHours()}.${time.getMinutes()}.${time.getSeconds()}`] = measurement;
+    }
 
-        // Handle the resolution
-        if(self.resolution == 'minute') {
-          updateStatement['$inc'][f('series.%s', time.getSeconds())] = measurement;
-        } else if(self.resolution == 'hour') {
-          updateStatement['$inc'][f('series.%s.%s', time.getMinutes(), time.getSeconds())] = measurement;
-        } else if(self.resolution == 'day') {
-          updateStatement['$inc'][f('series.%s.%s.%s', time.getHours(), time.getMinutes(), time.getSeconds())] = measurement;
-        }
+    // Clone options
+    options = Object.assign({}, options, {upsert:true});
 
-        // Clone options
-        options = clone(options);
-        options.upsert = true;
+    // Execute the update
+    var r = await this.timeseries.updateOne({
+        _id: this.id
+      , tag: this.tag
+      , timestamp: this.timestamp
+    }, updateStatement, options);
 
-        // Execute the update
-        var r = yield self.timeseries.updateOne({
-            _id: self.id
-          , tag: self.tag
-          , timestamp: self.timestamp
-        }, updateStatement, options);
+    if(r.upsertedCount == 0 && r.modifiedCount == 0) {
+      throw new Error(`could not correctly update or upsert the timeseries document with id ${this.id}`);
+    }
 
-        if(r.upsertedCount == 0 && r.modifiedCount == 0)
-          return reject(new Error(f('could not correctly update or upsert the timeseries document with id %s', self.id)));
-
-        resolve(self);
-      }).catch(reject);
-    });
+    return this;
   }
 
   /*
    * Pre allocate a minute worth of measurements in a document
    */
-  static preAllocateMinute(collections, id, tag, timestamp) {
+  static async preAllocateMinute(collections, id, tag, timestamp) {
     var series = {};
 
     for(var i = 0; i < 60; i++) {
       series[i] = 0
     }
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var timeSeries = new TimeSeries(collections, id, tag, series, timestamp, 'minute');
-        yield timeSeries.create();
-        resolve(timeSeries);
-      }).catch(reject);
-    });
+    var timeSeries = new TimeSeries(collections, id, tag, series, timestamp, 'minute');
+    await timeSeries.create();
+    return timeSeries;
   }
 
   /*
    * Pre allocate an hour worth of measurements in a document
    */
-  static preAllocateHour(collections, id, tag, timestamp) {
+  static async preAllocateHour(collections, id, tag, timestamp) {
     var series = {};
 
     // Allocate minutes
@@ -131,19 +103,15 @@ class TimeSeries {
       }
     }
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var timeSeries = new TimeSeries(collections, id, tag, series, timestamp, 'hour');
-        yield timeSeries.create();
-        resolve(timeSeries);
-      }).catch(reject);
-    });
+    var timeSeries = new TimeSeries(collections, id, tag, series, timestamp, 'hour');
+    await timeSeries.create();
+    return timeSeries;
   }
 
   /*
    * Pre allocate a day worth of measurements in a document
    */
-  static preAllocateDay(collections, id, tag, timestamp) {
+  static async preAllocateDay(collections, id, tag, timestamp) {
     var series = {};
 
     // Allocate hours
@@ -161,25 +129,16 @@ class TimeSeries {
       }
     }
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var timeSeries = new TimeSeries(collections, id, tag, series, timestamp, 'day');
-        yield timeSeries.create();
-        resolve(timeSeries);
-      }).catch(reject);
-    });
+    var timeSeries = new TimeSeries(collections, id, tag, series, timestamp, 'day');
+    await timeSeries.create();
+    return timeSeries;
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        yield collections['timeseries'].ensureIndex({tag: 1, timestamp:1});
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
+    await collections['timeseries'].ensureIndex({tag: 1, timestamp:1});
   }
 }
 

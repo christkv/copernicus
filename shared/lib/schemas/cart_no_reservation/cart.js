@@ -1,7 +1,6 @@
 "use strict";
 
-var f = require('util').format,
-  ObjectID = require('mongodb').ObjectID,
+var ObjectID = require('mongodb').ObjectID,
   Inventory = require('./inventory'),
   Order = require('./order');
 
@@ -87,7 +86,7 @@ class Cart {
     }, options);
 
     if(r.modifiedCount == 0) {
-      throw new Error(f('failed to remove product %s from cart %s', product.id, this.id));
+      throw new Error(`failed to remove product ${product.id} from cart ${this.id}`);
     }
 
     if(r.result.writeConcernError) {
@@ -114,7 +113,7 @@ class Cart {
     }, options);
 
     if(r.modifiedCount == 0) {
-      throw new Error(f('failed to set product quantity change of %s for cart %s', quantity, this.id));
+      throw new Error(`failed to set product quantity change of ${quantity} for cart ${this.id}`);
     }
 
     if(r.result.writeConcernError) {
@@ -134,7 +133,7 @@ class Cart {
     });
 
     if(!cart) {
-      throw new Error(f('could not located cart with id %s', this.id));
+      throw new Error(`could not located cart with id ${this.id}`);
     }
 
     // Reserve the quantities for all the products (rolling back if some are not possible to cover)
@@ -158,7 +157,7 @@ class Cart {
     }, options);
 
     if(r.modifiedCount == 0) {
-      throw new Error(f('failed to set cart %s to completed state', this.id));
+      throw new Error(`failed to set cart ${this.id} to completed state`);
     }
 
     if(r.result.writeConcernError) {

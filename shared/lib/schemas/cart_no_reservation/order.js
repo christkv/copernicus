@@ -1,7 +1,6 @@
 "use strict";
 
-var f = require('util').format,
-    ObjectID = require('mongodb').ObjectID;
+var ObjectID = require('mongodb').ObjectID;
 
 class Order {
   constructor(collections, id, shipping, payment, products) {
@@ -17,46 +16,36 @@ class Order {
   /*
    * Create a new order after checkout of the cart
    */
-  create(options) {
-    var self = this;
-    options = options || {}
+  async create(options = {}) {
     var total = 0;
 
     for(var i = 0; i < this.products.length; i++) {
       total = total + (this.products[i].quantity * this.products[i].price);
     }
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Create a new order
-        var r = yield self.orders.insertOne({
-            _id: self.id
-          , total: total
-          , shipping: self.shipping
-          , payment: self.payment
-          , products: self.products
-        }, options);
+    // Create a new order
+    var r = await this.orders.insertOne({
+        _id: this.id
+      , total: total
+      , shipping: this.shipping
+      , payment: this.payment
+      , products: this.products
+    }, options);
 
-        if(r.result.nInserted == 0)
-          return reject(new Error(f('failed to insert order for cart %s', self.id)));
+    if(r.result.nInserted == 0)
+      throw new Error(`failed to insert order for cart ${this.id}`);
 
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-        resolve(self)
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    return this;
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      resolve();
-    });
+  static async createOptimalIndexes(collections) {
   }
 }
 

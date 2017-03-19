@@ -1,7 +1,5 @@
 "use strict";
 
-var f = require('util').format
-
 /*
   Uses $slice to keep the latest X number of items in the cache avoiding
   growing documents
@@ -61,7 +59,7 @@ class SliceCache {
     }, { $set: { data: [] } })
 
     if(r.modifiedCount == 0) {
-      throw new Error(f('failed to clear out pre-allocated array for object %s', this.id));
+      throw new Error(`failed to clear out pre-allocated array for object ${this.id}`);
     }
   }
 
@@ -95,7 +93,7 @@ class SliceCache {
     }, options);
 
     if(r.modifiedCount == 0) {
-      throw new Error(f('failed to push items to cache object with id %s', this.id));
+      throw new Error(`failed to push items to cache object with id ${this.id}`);
     }
   }
 

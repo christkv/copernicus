@@ -1,8 +1,5 @@
 "use strict";
 
-var f = require('util').format,
-  co = require('co');
-
 /*
  * Represents a topic
  */

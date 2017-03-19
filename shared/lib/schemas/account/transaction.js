@@ -1,7 +1,6 @@
 "use strict";
 
-var ObjectID = require('mongodb').ObjectID
-  , f = require('util').format;
+var ObjectID = require('mongodb').ObjectID;
 
 class Transaction {
   constructor(collections, id, fromAccount, toAccount, amount) {
@@ -72,7 +71,7 @@ class Transaction {
 
     // Fail after the transaction was commited
     if(options.fail == 'failAfterCommit') {
-      throw new Error(f('failed to clear transaction with %s from account %s', this.id, this.fromAccount.name));
+      throw new Error(`failed to clear transaction with ${this.id} from account ${this.fromAccount.name}`);
     }
 
     // Clear out the applied transaction on the second account
@@ -91,7 +90,7 @@ class Transaction {
         return reject(r.result.writeConcernError);
 
       if(r.result.nUpdated == 0) {
-        throw new Error(f('no initial state transaction found for %s', this.id));
+        throw new Error(`no initial state transaction found for ${this.id}`);
       }
 
       this.state = Transaction.PENDING;
@@ -102,7 +101,7 @@ class Transaction {
       }
 
       if(r.result.nUpdated == 0) {
-        throw new Error(f('no pending state transaction found for %s', this.id));
+        throw new Error(`no pending state transaction found for ${this.id}`);
       }
 
       this.state = Transaction.COMMITTED;
@@ -113,7 +112,7 @@ class Transaction {
       }
 
       if(r.result.nUpdated == 0) {
-        throw new Error(f('no pending state transaction found for %s', this.id));
+        throw new Error(`no pending state transaction found for ${this.id}`);
       }
 
       this.state = Transaction.DONE;
@@ -130,7 +129,7 @@ class Transaction {
     }
 
     if(r.result.nUpdated == 0) {
-      throw new Error(f('no transaction found for %s', this.id));
+      throw new Error(`no transaction found for ${this.id}`);
     }
   }
 

@@ -13,60 +13,40 @@ class Product {
   /*
    * Create a new product MongoDB document
    */
-  create(options) {
-    var self = this;
-    options = options || {}
+  async create(options = {}) {
+    // Insert a product
+    var r = await this.products.insertOne({
+        _id: this.id
+      , name: this.name
+      , properties: this.properties
+    }, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert a product
-        var r = yield self.products.insertOne({
-            _id: self.id
-          , name: self.name
-          , properties: self.properties
-        }, options);
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        resolve(self);
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    return this;
   }
 
   /*
    * Reload the product information
    */
-  reload(options) {
-    var self = this;
-    options = options || {}
+  async reload(options = {}) {
+    // Find a product
+    var doc = await this.products.findOne({_id: this.id}, options);
+    if(!doc) {
+      return this;
+    }
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Find a product
-        var doc = yield self.products.findOne({_id: this.id}, options);
-        if(!doc) {
-          return resolve(self)
-        }
-
-        self.name = doc.name;
-        self.price = doc.price;
-        return resolve(self)
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    this.name = doc.name;
+    this.price = doc.price;
+    return this;
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      resolve();
-    });
+  static async createOptimalIndexes(collections) {
   }
 }
 
