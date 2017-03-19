@@ -1,8 +1,6 @@
 "use strict";
 
-var f = require('util').format,
-  co = require('co'),
-  ObjectID = require('mongodb').ObjectID;
+var ObjectID = require('mongodb').ObjectID;
 
 /*
  * Create a new category instance
@@ -29,187 +27,149 @@ class Category {
   /*
    * Create a new mongodb category document
    */
-  create(options) {
-    var self = this;
-    options = options || {};
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert a new category
-        yield self.categories.insertOne({
-            _id: self.id
-          , name: self.name
-          , category: self.category
-          , parent: self.parent
-        }, options);
-
-        resolve(self);
-      }).catch(reject);
-    });
+  async create(options = {}) {
+    // Insert a new category
+    await this.categories.insertOne({
+        _id: this.id
+      , name: this.name
+      , category: this.category
+      , parent: this.parent
+    }, options);
+    return this;
   }
 
   /*
    * Reload the product information
    */
-  reload() {
-    var self = this;
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        yield self.categories.findOne({_id: self.id});
-        resolve(self);
-      }).catch(reject);
-    });
+  async reload() {
+    await this.categories.findOne({_id: this.id});
+    return this;
   }
 
   /*
    * Find all direct children categories of a provided category path
    */
-  static findAllDirectChildCategories(collections, path, options) {
-    var self = this;
-    options = options || {};
+  static async findAllDirectChildCategories(collections, path, options = {}) {
+    // Regular expression
+    var regexp = new RegExp(`^${path}$`);
+    var coveredIndex = typeof options.coveredIndex == 'boolean' ? options.coveredIndex : false;
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Regular expression
-        var regexp = new RegExp(f('^%s$', path));
-        var coveredIndex = typeof options.coveredIndex == 'boolean' ? options.coveredIndex : false;
+    // Execute as covered index
+    if(coveredIndex) {
+      var cursor = collections['categories'].find({parent: regexp})
+        .project({_id: 0, name: 1, category:1});
 
-        // Execute as covered index
-        if(coveredIndex) {
-          var cursor = collections['categories'].find({parent: regexp})
-            .project({_id: 0, name: 1, category:1});
+      if(options.readPreference) {
+        cursor.setReadPreference(options.readPreference);
+      }
 
-          if(options.readPreference) {
-            cursor.setReadPreference(options.readPreference);
-          }
+      // Locate all the categories
+      var docs = await cursor.toArray();
 
-          // Locate all the categories
-          var docs = yield cursor.toArray();
+      // Map all the docs to category instances
+      return docs.map((x) => {
+        return new Category(collections, x._id, x.name, x.category, x.parent);
+      });
+    }
 
-          // Map all the docs to category instances
-          return resolve(docs.map(function(x) {
-            return new Category(collections, x._id, x.name, x.category, x.parent);
-          }));
-        }
+    // Locate all the categories
+    var cursor = collections['categories'].find({parent: regexp});
 
-        // Locate all the categories
-        var cursor = collections['categories'].find({parent: regexp});
+    if(options.readPreference) {
+      cursor.setReadPreference(options.readPreference);
+    }
 
-        if(options.readPreference) {
-          cursor.setReadPreference(options.readPreference);
-        }
+    var docs = await cursor.toArray();
 
-        var docs = yield cursor.toArray();
-
-        // Map all the docs to category instances
-        resolve(docs.map(function(x) {
-          return new Category(collections, x._id, x.name, x.category, x.parent);
-        }))
-      }).catch(reject);
+    // Map all the docs to category instances
+    return docs.map((x) => {
+      return new Category(collections, x._id, x.name, x.category, x.parent);
     });
   }
 
   /*
    * Find all children categories below the provided category path
    */
-  static findAllChildCategories(collections, path, options) {
-    var self = this;
-    options = options || {};
+  static async findAllChildCategories(collections, path, options = {}) {
+    // Regular expression
+    var regexp = new RegExp(`^${path}`);
+    var coveredIndex = typeof options.coveredIndex == 'boolean' ? options.coveredIndex : false;
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Regular expression
-        var regexp = new RegExp(f('^%s', path));
-        var coveredIndex = typeof options.coveredIndex == 'boolean' ? options.coveredIndex : false;
+    // Execute as covered index
+    if(coveredIndex) {
+      var cursor = collections['categories'].find({parent: regexp})
+        .project({_id: 0, name: 1, category:1, parent:1});
 
-        // Execute as covered index
-        if(coveredIndex) {
-          var cursor = collections['categories'].find({parent: regexp})
-            .project({_id: 0, name: 1, category:1, parent:1});
+      if(options.readPreference) {
+        cursor.setReadPreference(options.readPreference);
+      }
 
-          if(options.readPreference) {
-            cursor.setReadPreference(options.readPreference);
-          }
+      // Locate all the categories
+      var docs = await cursor.toArray();
 
-          // Locate all the categories
-          var docs = yield cursor.toArray();
+      // Map all the docs to category instances
+      return docs.map((x) => {
+        return new Category(collections, x._id, x.name, x.category, x.parent);
+      });
+    }
 
-          // Map all the docs to category instances
-          return resolve(docs.map(function(x) {
-            return new Category(collections, x._id, x.name, x.category, x.parent);
-          }));
-        }
+    // Locate all the categories
+    var cursor = collections['categories'].find({parent: regexp});
 
-        // Locate all the categories
-        var cursor = collections['categories'].find({parent: regexp});
+    if(options.readPreference) {
+      cursor.setReadPreference(options.readPreference);
+    }
 
-        if(options.readPreference) {
-          cursor.setReadPreference(options.readPreference);
-        }
+    var docs = await cursor.toArray();
 
-        var docs = yield cursor.toArray();
-
-        // Map all the docs to category instances
-        resolve(docs.map(function(x) {
-          return new Category(collections, x._id, x.name, x.category, x.parent);
-        }));
-      }).catch(reject);
+    // Map all the docs to category instances
+    return docs.map((x) => {
+      return new Category(collections, x._id, x.name, x.category, x.parent);
     });
   }
 
   /*
    * Find a specific category by it's path
    */
-  static findOne(collections, path, options) {
-    var self = this;
-    options = options || {};
+  static async findOne(collections, path, options = {}) {
+    var coveredIndex = typeof options.coveredIndex == 'boolean' ? options.coveredIndex : false;
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var coveredIndex = typeof options.coveredIndex == 'boolean' ? options.coveredIndex : false;
+    // Execute as covered index
+    if(coveredIndex) {
+      options['fields'] = {_id: 0, name: 1, category:1, parent:1};
+      // Locate all the categories
+      var doc = await collections['categories'].findOne({category: path}, options);
 
-        // Execute as covered index
-        if(coveredIndex) {
-          options['fields'] = {_id: 0, name: 1, category:1, parent:1};
-          // Locate all the categories
-          var doc = yield collections['categories'].findOne({category: path}, options);
+      if(!doc) {
+        throw new Error(`could not locate category with path ${path}`);
+      }
 
-          if(!doc)
-            return reject(new Error(f('could not locate category with path %s', path)));
+      // Return the mapped category
+      return new Category(collections, doc._id, doc.name, doc.category, doc.parent);
+    }
 
-          // Return the mapped category
-          return resolve(new Category(collections, doc._id, doc.name, doc.category, doc.parent));
-        }
+    var finalOptions = {};
+    if(options.readPreference) {
+      finalOptions.readPreference = options.readPreference;
+    }
 
-        var finalOptions = {};
-        if(options.readPreference) {
-          finalOptions.readPreference = options.readPreference;
-        }
+    // Locate all the categories
+    var doc = await collections['categories'].findOne({category: path}, finalOptions);
 
-        // Locate all the categories
-        var doc = yield collections['categories'].findOne({category: path}, finalOptions);
+    if(!doc) {
+      throw new Error(`could not locate category with path ${path}`);
+    }
 
-        if(!doc)
-          return reject(new Error(f('could not locate category with path %s', path)));
-
-        // Return the mapped category
-        resolve(new Category(collections, doc._id, doc.name, doc.category, doc.parent));
-      }).catch(reject);
-    });
+    // Return the mapped category
+    return new Category(collections, doc._id, doc.name, doc.category, doc.parent);
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        yield collections['categories'].ensureIndex({category:1});
-        yield collections['categories'].ensureIndex({parent:1});
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
+    await collections['categories'].ensureIndex({category:1});
+    await collections['categories'].ensureIndex({parent:1});
   }
 }
 

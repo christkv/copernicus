@@ -2,410 +2,301 @@
 
 var co = require('co');
 
-var setup = function(db, callback) {
-  var Category = require('../../lib/common/schemas/nested_categories/category')
-    , Product = require('../../lib/common/schemas/nested_categories/product');
+const assert = require('assert');
+const {
+  ObjectId,
+  MongoClient
+} = require('mongodb');
+const Category = require('../lib/schemas/nested_categories/category')
+const Product = require('../lib/schemas/nested_categories/product')
 
+async function setup(db) {
   // All the collections used
   var collections = {
       products: db.collection('products')
     , categories: db.collection('categories')
   }
 
-  return new Promise(function(resolve, reject) {
-    co(function* () {
-      try { yield collections['products'].drop(); } catch(err) {};
-      try { yield collections['categories'].drop(); } catch(err) {};
-      yield Category.createOptimalIndexes(collections);
-      yield Product.createOptimalIndexes(collections);
-      resolve();
-    }).catch(reject);
-  });
+  try { await collections['products'].drop(); } catch(err) {}
+  try { await collections['categories'].drop(); } catch(err) {}
+
+  await Category.createOptimalIndexes(collections);
+  await Product.createOptimalIndexes(collections);
 }
 
-var setupCategories = function(db, categories, callback) {
-  var Category = require('../../lib/common/schemas/nested_categories/category')
-    , ObjectId = require('mongodb').ObjectId;
-
+async function setupCategories(db, categories) {
   // All the collections used
   var collections = {
       products: db.collection('products')
     , categories: db.collection('categories')
   }
 
-  return new Promise(function(resolve, reject) {
-    co(function* () {
-      // Iterate over all the categories
-      for(var i = 0; i < categories.length; i++) {
-        var category = new Category(collections, new ObjectId(), categories[i][0], categories[i][1]);
-        yield category.create();
-      }
-
-      resolve();
-    }).catch(reject);
-  });
+  // Iterate over all the categories
+  for(var i = 0; i < categories.length; i++) {
+    var category = new Category(collections, new ObjectId(), categories[i][0], categories[i][1]);
+    await category.create();
+  }
 }
 
-var setupProducts = function(db, products, callback) {
-  var Product = require('../../lib/common/schemas/nested_categories/product')
-    , ObjectId = require('mongodb').ObjectId;
-
+async function setupProducts(db, products) {
   // All the collections used
   var collections = {
       products: db.collection('products')
     , categories: db.collection('categories')
   }
 
-  return new Promise(function(resolve, reject) {
-    co(function* () {
-      // Iterate over all the categories
-      for(var i = 0; i < products.length; i++) {
-        var product = new Product(collections, new ObjectId(), products[i][0], products[i][1], products[i][2], products[i][3]);
-        yield product.create();
-      }
+  // Iterate over all the categories
+  for(var i = 0; i < products.length; i++) {
+    var product = new Product(collections, new ObjectId(), products[i][0], products[i][1], products[i][2], products[i][3]);
+    await product.create();
+  }
+}
 
-      resolve();
-    }).catch(reject);
+describe('Nested Categories', () => {
+  it('Correctly category and fetch all immediate children of root node', async () => {
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
+
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , categories: db.collection('categories')
+    }
+
+    // Cleanup
+    await setup(db);
+    // Setup a bunch of categories
+    var categories = [
+        ['root', '/']
+      , ['1', '/1'], ['2', '/2'], ['3', '/3']
+      , ['1-1', '/1/1'], ['1-2', '/1/2']
+      , ['2-1', '/2/1'], ['2-2', '/2/2']
+      , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
+    ];
+
+    // Create all the categories
+    await setupCategories(db, categories);
+    // Get all the immediate children of the root
+    var categories = await Category.findAllDirectChildCategories(collections, '/');
+    assert.equal(3, categories.length);
+    var paths = {'/1':true, '/2':true, '/3':true};
+
+    for(var i = 0; i < categories.length; i++) {
+      if(paths[categories[i].category]) {
+        delete paths[categories[i].category];
+      }
+    }
+
+    assert.equal(0, Object.keys(paths).length);
+
+    db.close();
   });
-}
 
-exports['Correctly category and fetch all immediate children of root node'] = {
-  metadata: { requires: { } },
+  it('Correctly fetch Category tree under a specific path', async () => {
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
 
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var Category = require('../../lib/common/schemas/nested_categories/category')
-      , Product = require('../../lib/common/schemas/nested_categories/product')
-      , ObjectId = require('mongodb').ObjectId
-      , MongoClient = require('mongodb').MongoClient;
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , categories: db.collection('categories')
+    }
 
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
+    // Cleanup
+    await setup(db);
 
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , categories: db.collection('categories')
+    // Setup a bunch of categories
+    var categories = [
+        ['root', '/']
+      , ['1', '/1'], ['2', '/2'], ['3', '/3']
+      , ['1-1', '/1/1'], ['1-2', '/1/2']
+      , ['2-1', '/2/1'], ['2-2', '/2/2']
+      , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
+    ];
+
+    // Create all the categories
+    await setupCategories(db, categories);
+
+    // Get all the immediate children of the root
+    var categories = await Category.findAllChildCategories(collections, '/1');
+    assert.equal(2, categories.length);
+    var paths = {'/1/1':true, '/1/2':true};
+
+    for(var i = 0; i < categories.length; i++) {
+      if(paths[categories[i].category]) {
+        delete paths[categories[i].category];
       }
+    }
 
-      // Cleanup
-      yield setup(db);
+    assert.equal(0, Object.keys(paths).length);
 
-      // Setup a bunch of categories
-      var categories = [
-          ['root', '/']
-        , ['1', '/1'], ['2', '/2'], ['3', '/3']
-        , ['1-1', '/1/1'], ['1-2', '/1/2']
-        , ['2-1', '/2/1'], ['2-2', '/2/2']
-        , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
-      ];
+    db.close();
+  });
 
-      // Create all the categories
-      yield setupCategories(db, categories);
-      // Get all the immediate children of the root
-      var categories = yield Category.findAllDirectChildCategories(collections, '/');
-      test.equal(3, categories.length);
-      var paths = {'/1':true, '/2':true, '/3':true};
+  it('Correctly fetch specific category', async () => {
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
 
-      for(var i = 0; i < categories.length; i++) {
-        if(paths[categories[i].category]) {
-          delete paths[categories[i].category];
-        }
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , categories: db.collection('categories')
+    }
+
+    // Cleanup
+    await setup(db);
+
+    // Setup a bunch of categories
+    var categories = [
+        ['root', '/']
+      , ['1', '/1'], ['2', '/2'], ['3', '/3']
+      , ['1-1', '/1/1'], ['1-2', '/1/2']
+      , ['2-1', '/2/1'], ['2-2', '/2/2']
+      , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
+    ];
+
+    // Create all the categories
+    await setupCategories(db, categories);
+
+    // Get all the immediate children of the root
+    var category = await Category.findOne(collections, '/1/1');
+    assert.equal('/1/1', category.category);
+
+    db.close();
+  });
+
+  it('Correctly fetch all products of a specific category', async () => {
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
+
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , categories: db.collection('categories')
+    }
+
+    // Cleanup
+    await setup(db);
+
+    //name, cost, currency, categories
+    // Setup a bunch of categories
+    var products = [
+        ['prod1', 100, 'usd', ['/']]
+      , ['prod2', 200, 'usd', ['/1']], ['prod3', 300, 'usd', ['/2']], ['prod4', 400, 'usd', ['/3']]
+      , ['prod2-1', 200, 'usd', ['/1/1']], ['prod2-2', 200, 'usd', ['/1/2']]
+      , ['prod3-1', 300, 'usd', ['/2/1']], ['prod3-2', 200, 'usd', ['/2/2']]
+      , ['prod4-1', 300, 'usd', ['/3/1']], ['prod4-2', 200, 'usd', ['/3/2']], ['prod4-3', 200, 'usd', ['/3/3']]
+    ];
+
+    // Create all the categories
+    await setupProducts(db, products);
+
+    // Get all the immediate children of the root
+    var products = await Product.findByCategory(collections, '/');
+    assert.equal(1, products.length);
+    assert.equal('/', products[0].categories[0]);
+
+    db.close();
+  });
+
+  it('Correctly fetch all products of a specific category', async () => {
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
+
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , categories: db.collection('categories')
+    }
+
+    // Cleanup
+    await setup(db);
+
+    // Setup a bunch of categories
+    var categories = [
+        ['root', '/']
+      , ['1', '/1'], ['2', '/2'], ['3', '/3']
+      , ['1-1', '/1/1'], ['1-2', '/1/2']
+      , ['2-1', '/2/1'], ['2-2', '/2/2']
+      , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
+    ];
+
+    // Create all the categories
+    await setupCategories(db, categories);
+
+    // Setup a bunch of categories
+    var products = [
+        ['prod1', 100, 'usd', ['/']]
+      , ['prod2', 200, 'usd', ['/1']], ['prod3', 300, 'usd', ['/2']], ['prod4', 400, 'usd', ['/3']]
+      , ['prod2-1', 200, 'usd', ['/1/1']], ['prod2-2', 200, 'usd', ['/1/2']]
+      , ['prod3-1', 300, 'usd', ['/2/1']], ['prod3-2', 200, 'usd', ['/2/2']]
+      , ['prod4-1', 300, 'usd', ['/3/1']], ['prod4-2', 200, 'usd', ['/3/2']], ['prod4-3', 200, 'usd', ['/3/3']]
+    ];
+
+    // Create all the categories
+    await setupProducts(db, products);
+
+    // Get all the immediate children of the root
+    var products = await Product.findByDirectCategoryChildren(collections, '/');
+    assert.equal(3, products.length);
+    var paths = {'/1':true, '/2':true, '/3':true};
+
+    for(var i = 0; i < products.length; i++) {
+      if(paths[products[i].categories[0]]) {
+        delete paths[products[i].categories[0]];
       }
+    }
 
-      test.equal(0, Object.keys(paths).length);
+    assert.equal(0, Object.keys(paths).length);
 
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
+    db.close();
+  });
 
-exports['Correctly fetch Category tree under a specific path'] = {
-  metadata: { requires: { } },
+  it('Correctly fetch all products of a specific category', async () => {
+    var db = await MongoClient.connect('mongodb://localhost:27017/test');
 
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var Category = require('../../lib/common/schemas/nested_categories/category')
-      , Product = require('../../lib/common/schemas/nested_categories/product')
-      , ObjectId = require('mongodb').ObjectId
-      , MongoClient = require('mongodb').MongoClient;
+    // All the collections used
+    var collections = {
+        products: db.collection('products')
+      , categories: db.collection('categories')
+    }
 
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
+    // Cleanup
+    await setup(db);
 
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , categories: db.collection('categories')
+    // Setup a bunch of categories
+    var categories = [
+        ['root', '/']
+      , ['1', '/1'], ['2', '/2'], ['3', '/3']
+      , ['1-1', '/1/1'], ['1-2', '/1/2']
+      , ['2-1', '/2/1'], ['2-2', '/2/2']
+      , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
+    ];
+
+    // Create all the categories
+    await setupCategories(db, categories);
+
+    // Setup a bunch of categories
+    var products = [
+        ['prod1', 100, 'usd', ['/']]
+      , ['prod2', 200, 'usd', ['/1']], ['prod3', 300, 'usd', ['/2']], ['prod4', 400, 'usd', ['/3']]
+      , ['prod2-1', 200, 'usd', ['/1/1']], ['prod2-2', 200, 'usd', ['/1/2']]
+      , ['prod3-1', 300, 'usd', ['/2/1']], ['prod3-2', 200, 'usd', ['/2/2']]
+      , ['prod4-1', 300, 'usd', ['/3/1']], ['prod4-2', 200, 'usd', ['/3/2']], ['prod4-3', 200, 'usd', ['/3/3']]
+    ];
+
+    // Create all the categories
+    await setupProducts(db, products);
+
+    // Get all the immediate children of the root
+    var products = await Product.findByCategoryTree(collections, '/1');
+    assert.equal(2, products.length);
+
+    var paths = {'/1/1':true, '/1/2':true};
+
+    for(var i = 0; i < products.length; i++) {
+      if(paths[products[i].categories[0]]) {
+        delete paths[products[i].categories[0]];
       }
+    }
 
-      // Cleanup
-      yield setup(db);
+    assert.equal(0, Object.keys(paths).length);
 
-      // Setup a bunch of categories
-      var categories = [
-          ['root', '/']
-        , ['1', '/1'], ['2', '/2'], ['3', '/3']
-        , ['1-1', '/1/1'], ['1-2', '/1/2']
-        , ['2-1', '/2/1'], ['2-2', '/2/2']
-        , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
-      ];
-
-      // Create all the categories
-      yield setupCategories(db, categories);
-
-      // Get all the immediate children of the root
-      var categories = yield Category.findAllChildCategories(collections, '/1');
-      test.equal(2, categories.length);
-      var paths = {'/1/1':true, '/1/2':true};
-
-      for(var i = 0; i < categories.length; i++) {
-        if(paths[categories[i].category]) {
-          delete paths[categories[i].category];
-        }
-      }
-
-      test.equal(0, Object.keys(paths).length);
-
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
-
-exports['Correctly fetch specific category'] = {
-  metadata: { requires: { } },
-
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var Category = require('../../lib/common/schemas/nested_categories/category')
-      , Product = require('../../lib/common/schemas/nested_categories/product')
-      , ObjectId = require('mongodb').ObjectId
-      , MongoClient = require('mongodb').MongoClient;
-
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
-
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , categories: db.collection('categories')
-      }
-
-      // Cleanup
-      yield setup(db);
-
-      // Setup a bunch of categories
-      var categories = [
-          ['root', '/']
-        , ['1', '/1'], ['2', '/2'], ['3', '/3']
-        , ['1-1', '/1/1'], ['1-2', '/1/2']
-        , ['2-1', '/2/1'], ['2-2', '/2/2']
-        , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
-      ];
-
-      // Create all the categories
-      yield setupCategories(db, categories);
-
-      // Get all the immediate children of the root
-      var category = yield Category.findOne(collections, '/1/1');
-      test.equal('/1/1', category.category);
-
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
-
-exports['Correctly fetch all products of a specific category'] = {
-  metadata: { requires: { } },
-
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var Product = require('../../lib/common/schemas/nested_categories/product')
-      , ObjectId = require('mongodb').ObjectId
-      , MongoClient = require('mongodb').MongoClient;
-
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
-
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , categories: db.collection('categories')
-      }
-
-      // Cleanup
-      yield setup(db);
-
-      //name, cost, currency, categories
-      // Setup a bunch of categories
-      var products = [
-          ['prod1', 100, 'usd', ['/']]
-        , ['prod2', 200, 'usd', ['/1']], ['prod3', 300, 'usd', ['/2']], ['prod4', 400, 'usd', ['/3']]
-        , ['prod2-1', 200, 'usd', ['/1/1']], ['prod2-2', 200, 'usd', ['/1/2']]
-        , ['prod3-1', 300, 'usd', ['/2/1']], ['prod3-2', 200, 'usd', ['/2/2']]
-        , ['prod4-1', 300, 'usd', ['/3/1']], ['prod4-2', 200, 'usd', ['/3/2']], ['prod4-3', 200, 'usd', ['/3/3']]
-      ];
-
-      // Create all the categories
-      yield setupProducts(db, products);
-
-      // Get all the immediate children of the root
-      var products = yield Product.findByCategory(collections, '/');
-      test.equal(1, products.length);
-      test.equal('/', products[0].categories[0]);
-
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
-
-exports['Correctly fetch all products of a specific categories direct children'] = {
-  metadata: { requires: { } },
-
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var Product = require('../../lib/common/schemas/nested_categories/product')
-      , ObjectId = require('mongodb').ObjectId
-      , MongoClient = require('mongodb').MongoClient;
-
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
-
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , categories: db.collection('categories')
-      }
-
-      // Cleanup
-      yield setup(db);
-
-      // Setup a bunch of categories
-      var categories = [
-          ['root', '/']
-        , ['1', '/1'], ['2', '/2'], ['3', '/3']
-        , ['1-1', '/1/1'], ['1-2', '/1/2']
-        , ['2-1', '/2/1'], ['2-2', '/2/2']
-        , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
-      ];
-
-      // Create all the categories
-      yield setupCategories(db, categories);
-
-      // Setup a bunch of categories
-      var products = [
-          ['prod1', 100, 'usd', ['/']]
-        , ['prod2', 200, 'usd', ['/1']], ['prod3', 300, 'usd', ['/2']], ['prod4', 400, 'usd', ['/3']]
-        , ['prod2-1', 200, 'usd', ['/1/1']], ['prod2-2', 200, 'usd', ['/1/2']]
-        , ['prod3-1', 300, 'usd', ['/2/1']], ['prod3-2', 200, 'usd', ['/2/2']]
-        , ['prod4-1', 300, 'usd', ['/3/1']], ['prod4-2', 200, 'usd', ['/3/2']], ['prod4-3', 200, 'usd', ['/3/3']]
-      ];
-
-      // Create all the categories
-      yield setupProducts(db, products);
-
-      // Get all the immediate children of the root
-      var products = yield Product.findByDirectCategoryChildren(collections, '/');
-      test.equal(3, products.length);
-      var paths = {'/1':true, '/2':true, '/3':true};
-
-      for(var i = 0; i < products.length; i++) {
-        if(paths[products[i].categories[0]]) {
-          delete paths[products[i].categories[0]];
-        }
-      }
-
-      test.equal(0, Object.keys(paths).length);
-
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
-
-exports['Correctly fetch all products of a specific categories tree'] = {
-  metadata: { requires: { } },
-
-  // The actual test we wish to run
-  test: function(configuration, test) {
-    var Product = require('../../lib/common/schemas/nested_categories/product')
-      , ObjectId = require('mongodb').ObjectId
-      , MongoClient = require('mongodb').MongoClient;
-
-    co(function* () {
-      // Connect to mongodb
-      var db = yield MongoClient.connect(configuration.url());
-
-      // All the collections used
-      var collections = {
-          products: db.collection('products')
-        , categories: db.collection('categories')
-      }
-
-      // Cleanup
-      yield setup(db);
-
-      // Setup a bunch of categories
-      var categories = [
-          ['root', '/']
-        , ['1', '/1'], ['2', '/2'], ['3', '/3']
-        , ['1-1', '/1/1'], ['1-2', '/1/2']
-        , ['2-1', '/2/1'], ['2-2', '/2/2']
-        , ['3-1', '/3/1'], ['3-2', '/3/2', '/3/3']
-      ];
-
-      // Create all the categories
-      yield setupCategories(db, categories);
-
-      // Setup a bunch of categories
-      var products = [
-          ['prod1', 100, 'usd', ['/']]
-        , ['prod2', 200, 'usd', ['/1']], ['prod3', 300, 'usd', ['/2']], ['prod4', 400, 'usd', ['/3']]
-        , ['prod2-1', 200, 'usd', ['/1/1']], ['prod2-2', 200, 'usd', ['/1/2']]
-        , ['prod3-1', 300, 'usd', ['/2/1']], ['prod3-2', 200, 'usd', ['/2/2']]
-        , ['prod4-1', 300, 'usd', ['/3/1']], ['prod4-2', 200, 'usd', ['/3/2']], ['prod4-3', 200, 'usd', ['/3/3']]
-      ];
-
-      // Create all the categories
-      yield setupProducts(db, products);
-
-      // Get all the immediate children of the root
-      var products = yield Product.findByCategoryTree(collections, '/1');
-      test.equal(2, products.length);
-
-      var paths = {'/1/1':true, '/1/2':true};
-
-      for(var i = 0; i < products.length; i++) {
-        if(paths[products[i].categories[0]]) {
-          delete paths[products[i].categories[0]];
-        }
-      }
-
-      test.equal(0, Object.keys(paths).length);
-
-      db.close();
-      test.done();
-    }).catch(function(err) {
-      process.nextTick(function() {throw err});
-    });
-  }
-}
+    db.close();
+  });
+});

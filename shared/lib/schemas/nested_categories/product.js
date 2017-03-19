@@ -20,129 +20,95 @@ class Product {
   /*
    * Create a new mongodb product document
    */
-  create(options) {
-    var self = this;
-    options = options || {};
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert a new category
-        yield self.products.insertOne({
-            _id: self.id
-          , name: self.name
-          , cost: self.cost
-          , currency: self.currency
-          , categories: self.categories
-        }, options);
-
-        resolve(self);
-      }).catch(reject);
-    });
+  async create(options = {}) {
+    // Insert a new category
+    await this.products.insertOne({
+        _id: this.id
+      , name: this.name
+      , cost: this.cost
+      , currency: this.currency
+      , categories: this.categories
+    }, options);
+    return this;
   }
 
   /*
    * Find all products for a specific category
    */
-  static findByCategory(collections, path, options) {
-    var self = this;
-    options = options || {};
+  static async findByCategory(collections, path, options = {}) {
+    // Get all the products
+    var cursor = collections['products'].find({
+      categories: path
+    })
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Get all the products
-        var cursor = collections['products'].find({
-          categories: path
-        })
+    if(options.readPreference) {
+      cursor.setReadPreference(options.readPreference);
+    }
 
-        if(options.readPreference) {
-          cursor.setReadPreference(options.readPreference);
-        }
-
-        var products = yield cursor.toArray();
-        resolve(products.map(function(x) {
-          return new Product(collections, x._id, x.name, x.cost, x.currency, x.categories);
-        }));
-      }).catch(reject);
+    var products = await cursor.toArray();
+    return products.map((x) => {
+      return new Product(collections, x._id, x.name, x.cost, x.currency, x.categories);
     });
   }
 
   /*
    * Find all products for a categories direct children
    */
-  static findByDirectCategoryChildren(collections, path, options) {
-    var self = this;
-    options = options || {};
+  static async findByDirectCategoryChildren(collections, path, options = {}) {
+    // Locate all the categories
+    var categories = await Category.findAllDirectChildCategories(collections, path, options);
+    // Convert to paths
+    var paths = categories.map((x) => {
+      return x.category;
+    });
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Locate all the categories
-        var categories = yield Category.findAllDirectChildCategories(collections, path, options);
-        // Convert to paths
-        var paths = categories.map(function(x) {
-          return x.category;
-        });
+    // Get all the products
+    var cursor = collections['products'].find({
+      categories: { $in: paths }
+    })
 
-        // Get all the products
-        var cursor = collections['products'].find({
-          categories: { $in: paths }
-        })
+    if(options.readPreference) {
+      cursor.setReadPreference(options.readPreference);
+    }
 
-        if(options.readPreference) {
-          cursor.setReadPreference(options.readPreference);
-        }
-
-        var products = yield cursor.toArray();
-        resolve(products.map(function(x) {
-          return new Product(collections, x._id, x.name, x.cost, x.currency, x.categories);
-        }));
-      }).catch(reject);
+    var products = await cursor.toArray();
+    return products.map((x) => {
+      return new Product(collections, x._id, x.name, x.cost, x.currency, x.categories);
     });
   }
 
   /*
    * Find all products for a specific category tree
    */
-  static findByCategoryTree(collections, path, options) {
-    var self = this;
-    options = options || {};
+  static async findByCategoryTree(collections, path, options = {}) {
+    // Locate all the categories
+    var categories = await Category.findAllChildCategories(collections, path, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Locate all the categories
-        var categories = yield Category.findAllChildCategories(collections, path, options);
+    // Convert to paths
+    var paths = categories.map((x) => {
+      return x.category;
+    });
 
-        // Convert to paths
-        var paths = categories.map(function(x) {
-          return x.category;
-        });
+    // Get all the products
+    var cursor = collections['products'].find({
+      categories: { $in: paths }
+    });
 
-        // Get all the products
-        var cursor = collections['products'].find({
-          categories: { $in: paths }
-        })
+    if(options.readPreference) {
+      cursor.setReadPreference(options.readPreference);
+    }
 
-        if(options.readPreference) {
-          cursor.setReadPreference(options.readPreference);
-        }
-
-        var products = yield cursor.toArray();
-        resolve(products.map(function(x) {
-          return new Product(collections, x._id, x.name, x.cost, x.currency, x.categories);
-        }));
-      }).catch(reject);
+    var products = await cursor.toArray();
+    return products.map(function(x) {
+      return new Product(collections, x._id, x.name, x.cost, x.currency, x.categories);
     });
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        yield collections['products'].ensureIndex({categories:1});
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
+    await collections['products'].ensureIndex({categories:1});
   }
 }
 
