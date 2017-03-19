@@ -1,6 +1,11 @@
 "use strict";
 
 const assert = require('assert');
+const SliceCache = require('../lib/schemas/array_slice/cache');
+const {
+  ObjectID,
+  MongoClient
+} = require('mongodb');
 
 async function setup(db) {
   const SliceCache = require('../lib/schemas/array_slice/cache');
@@ -16,13 +21,6 @@ async function setup(db) {
 
 describe('Cache test', () => {
   it('Should correctly a 5 line cache no pre-allocation', async () => {
-    const {
-      ObjectID,
-      MongoClient
-    } = require('mongodb');
-
-    const SliceCache = require('../lib/schemas/array_slice/cache');
-
     // Connect to mongodb
     const db = await MongoClient.connect('mongodb://localhost:27017/test');
 
@@ -55,13 +53,6 @@ describe('Cache test', () => {
   });
 
   it('Should correctly a 5 line cache with pre-allocation', async () => {
-    const {
-      ObjectID,
-      MongoClient
-    } = require('mongodb');
-
-    const SliceCache = require('../lib/schemas/array_slice/cache');
-
     // Connect to mongodb
     const db = await MongoClient.connect('mongodb://localhost:27017/test');
 

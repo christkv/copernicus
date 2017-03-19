@@ -23,231 +23,177 @@ class Cart {
   /*
    * Create a new cart instance and save it to mongodb
    */
-  create(options) {
-    var self = this;
-    options = options || {};
+  async create(options = {}) {
+    var r = await this.carts.updateOne({
+        _id: this.id,
+      }, {
+          _id: this.id
+        , state: Cart.ACTIVE
+        , modified_on: new Date()
+        , products: []
+      }, {upsert:true});
+    
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var r = yield self.carts.updateOne({
-            _id: self.id,
-          }, {
-              _id: self.id
-            , state: Cart.ACTIVE
-            , modified_on: new Date()
-            , products: []
-          }, {upsert:true});
-        if(r.result.writeConcernError) return reject(r.result.writeConcernError);
-        resolve(self);
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    return this;
   }
 
   /*
    * Add product to cart, no validation of availability is made
    * as this is determined at check out only
    */
-  add(product, quantity, options) {
-    var self = this;
-    options = options || {};
-
-    // Clone options
-    options = clone(options);
-    options.upsert = true;
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Add product to cart, and create cart with upsert
-        // if it does not already exist
-        var r = yield self.carts.updateOne({
-          _id: self.id, state: Cart.ACTIVE
-        }, {
-            $set: { modified_on: new Date() }
-          , $push: {
-            products: {
-                _id: product.id
-              , quantity: quantity
-              , name: product.name
-              , price: product.price
-            }
-          }
-        }, options);
-
-        if(r.modifiedCount == 0) {
-          return reject(new Error(f("failed to add product %s to the cart with id %s", product.id, self.id)))
-        }
-
-        if(r.result.writeConcernError) {
-          return reject(r.result.writeConcernError);
-        }
-
-        self.products.push({
+  async add(product, quantity, options = {}) {
+    options = Object.assign({}, options, {upsert:true});
+    // Add product to cart, and create cart with upsert
+    // if it does not already exist
+    var r = await this.carts.updateOne({
+      _id: this.id, state: Cart.ACTIVE
+    }, {
+        $set: { modified_on: new Date() }
+      , $push: {
+        products: {
             _id: product.id
           , quantity: quantity
           , name: product.name
           , price: product.price
-        });
+        }
+      }
+    }, options);
 
-        resolve(self);
-      }).catch(function(err) {
-        reject(err);
-      });
+    if(r.modifiedCount == 0) {
+      throw new Error(f("failed to add product %s to the cart with id %s", product.id, this.id));
+    }
+
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
+
+    this.products.push({
+        _id: product.id
+      , quantity: quantity
+      , name: product.name
+      , price: product.price
     });
+
+    return this;
   }
 
   /*
    * Remove product from cart
    */
-  remove(product, options) {
-    var self = this;
-    options = options || {};
+  async remove(product, options = {}) {
+    // Remove the reservation from the cart itself
+    var r = await this.carts.updateOne({
+        _id: this.id
+      , "products._id": product.id
+      , state: Cart.ACTIVE
+    }, {
+      $pull: { products: {_id: product.id }}
+    }, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Remove the reservation from the cart itself
-        var r = yield self.carts.updateOne({
-            _id: self.id
-          , "products._id": product.id
-          , state: Cart.ACTIVE
-        }, {
-          $pull: { products: {_id: product.id }}
-        }, options);
+    if(r.modifiedCount == 0) {
+      throw new Error(f('failed to remove product %s from cart %s', product.id, this.id));
+    }
 
-        if(r.modifiedCount == 0)
-          return reject(new Error(f('failed to remove product %s from cart %s', product.id, self.id)));
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
 
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        resolve(self);
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    return this;
   }
 
   /*
    * Update the product quantity in the cart
    */
-  update(product, quantity, options) {
-    var self = this;
-    options = options || {};
+  async update(product, quantity, options = {}) {
+    // Update cart with the new quantity
+    var r = await this.carts.updateOne({
+        _id: this.id
+      , "products._id": product.id
+      , state: Cart.ACTIVE
+    }, {
+      $set: {
+          modified_on: new Date()
+        , "products.$.quantity": quantity
+      }
+    }, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Update cart with the new quantity
-        var r = yield self.carts.updateOne({
-            _id: self.id
-          , "products._id": product.id
-          , state: Cart.ACTIVE
-        }, {
-          $set: {
-              modified_on: new Date()
-            , "products.$.quantity": quantity
-          }
-        }, options);
+    if(r.modifiedCount == 0) {
+      throw new Error(f('failed to set product quantity change of %s for cart %s', quantity, this.id));
+    }
 
-        if(r.modifiedCount == 0)
-          return reject(new Error(f('failed to set product quantity change of %s for cart %s', quantity, self.id)));
-
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        resolve(self);
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
+    
+    return this;
   }
 
   /*
    * Attempt to checkout the products in the cart, late validation (like Amazon does)
    */
-  checkout(details, options) {
-    var self = this;
-    options = options || {};
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Fetch latest cart view
-        var cart = yield self.carts.findOne({
-          _id: self.id
-        });
-
-        if(!cart)
-          return reject(new Error(f('could not located cart with id %s', self.id)));
-
-        // Reserve the quantities for all the products (rolling back if some are not possible to cover)
-        yield Inventory.reserve(self.collections, self.id, cart.products, options);
-
-        // Create a new order instance
-        var order = new Order(self.collections, new ObjectID()
-          , details.shipping
-          , details.payment
-          , cart.products);
-
-        // Create the document
-        var order = yield order.create(options);
-
-        // Set the state of the cart as completed
-        var r = yield self.carts.updateOne({
-            _id: self.id
-          , state: Cart.ACTIVE
-        }, {
-          $set: { state: Cart.COMPLETED }
-        }, options);
-
-        if(r.modifiedCount == 0)
-          return reject(new Error(f('failed to set cart %s to completed state', self.id)));
-
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        // Commit the change to the inventory
-        yield Inventory.commit(self.collections, self.id, options);
-        resolve();
-      }).catch(function(err) {
-        reject(err);
-      });
+  async checkout(details, options = {}) {
+    // Fetch latest cart view
+    var cart = await this.carts.findOne({
+      _id: this.id
     });
+
+    if(!cart) {
+      throw new Error(f('could not located cart with id %s', this.id));
+    }
+
+    // Reserve the quantities for all the products (rolling back if some are not possible to cover)
+    await Inventory.reserve(this.collections, this.id, cart.products, options);
+
+    // Create a new order instance
+    var order = new Order(this.collections, new ObjectID()
+      , details.shipping
+      , details.payment
+      , cart.products);
+
+    // Create the document
+    var order = await order.create(options);
+
+    // Set the state of the cart as completed
+    var r = await this.carts.updateOne({
+        _id: this.id
+      , state: Cart.ACTIVE
+    }, {
+      $set: { state: Cart.COMPLETED }
+    }, options);
+
+    if(r.modifiedCount == 0) {
+      throw new Error(f('failed to set cart %s to completed state', this.id));
+    }
+
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
+
+    // Commit the change to the inventory
+    await Inventory.commit(this.collections, this.id, options);
   }
 
   /*
    * Expired carts can just be set to canceled as there is no need to return inventory
    */
-  releaseExpired(collections, options) {
-    options = options || {};
+  async releaseExpired(collections, options = {}) {
+    var r = await collections['carts'].updateMany(
+        {state: Cart.EXPIRED}
+      , { $set: { state: Cart.CANCELED} }, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        var r = yield collections['carts'].updateMany(
-            {state: Cart.EXPIRED}
-          , { $set: { state: Cart.CANCELED} }, options);
-
-        if(r.result.writeConcernError)
-          return reject(r.result.writeConcernError);
-
-        resolve();
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+    if(r.result.writeConcernError) {
+      throw r.result.writeConcernError;
+    }
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        yield collections['carts'].ensureIndex({state: 1});
-        resolve();
-      }).catch(function(err) {
-        reject(err);
-      });
-    });
+  static async createOptimalIndexes(collections) {
+    await collections['carts'].ensureIndex({state: 1});
   }
 }
 
