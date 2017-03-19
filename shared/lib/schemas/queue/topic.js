@@ -16,29 +16,19 @@ class Topic {
   /*
    * Push an object to the topic
    */
-  publish(object, options) {
-    var self = this;
-    options = options || {};
-
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert a document into topic
-        yield self.topic.insertOne({
-            createdOn: new Date()
-          , payload: object
-        }, options);
-
-        resolve();
-      }).catch(reject);
-    });
+  async publish(object, options = {}) {
+    // Insert a document into topic
+    await this.topic.insertOne({
+        createdOn: new Date()
+      , payload: object
+    }, options);
   }
 
   /*
    * Simple cursor builder, does not try to deal with reconnect etc
    */
-  listen(from, options) {
+  async listen(from, options = {awaitData: true}) {
     var query = {}
-    options = options || {awaitData: true};
     // We provided a filter allowing us to skip ahead
     if(from) query.createdOn = { $gte: from };
     // Create cursor
@@ -53,38 +43,27 @@ class Topic {
   /*
    * Create a topic
    */
-  create() {
-    // Get reference to self
-    var self = this;
+  async create() {
     // Collection options
     var options = {
         capped:true
-      , size: self.sizeInBytes
+      , size: this.sizeInBytes
     }
     // Get the collection name
-    var collectionName = self.topic.collectionName;
+    var collectionName = this.topic.collectionName;
     // Get the db object associated with the collection
-    var db = self.topic.s.db;
+    var db = this.topic.s.db;
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Create the capped collection
-        var collection = yield db.createCollection(collectionName, options);
-        self.topic = collection;
-        resolve(self);
-      }).catch(reject);
-    });
+    // Create the capped collection
+    var collection = await db.createCollection(collectionName, options);
+    this.topic = collection;
+    return this;
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
   }
 }
 

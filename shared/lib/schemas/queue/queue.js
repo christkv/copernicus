@@ -1,14 +1,6 @@
 "use strict";
 
-var f = require('util').format,
-  co = require('co'),
-  ObjectId = require('mongodb').ObjectId;
-
-var clone = function(obj) {
-  var o = {};
-  for(var name in obj) o[name] = obj[name];
-  return o;
-}
+var ObjectId = require('mongodb').ObjectId;
 
 /*
  * Represents a work item from the queue
@@ -24,25 +16,19 @@ class Work {
   /*
    * Sets an end time on the work item signaling it's done
    */
-  done(options) {
-    var self = this;
-    options = options || {};
+  async done(options = {}) {
+    // Set end time for the work item
+    var r = await this.queue.updateOne({
+      jobId: this.jobId
+    }, {
+      $set: { endTime: new Date() }
+    }, options);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Set end time for the work item
-        var r = yield self.queue.updateOne({
-          jobId: self.jobId
-        }, {
-          $set: { endTime: new Date() }
-        }, options);
+    if(r.modifiedCount == 0) {
+      throw new Error(`failed to set work item with jobId ${this.jobId} to done`);
+    }
 
-        if(r.modifiedCount == 0)
-          return reject(new Error(f('failed to set work item with jobId %s to done', self.jobId)));
-
-        resolve(self);
-      }).catch(reject);
-    });
+    return this;
   }
 }
 
@@ -59,108 +45,79 @@ class Queue {
   /*
    * Publish a new item on the queue with a specific priority
    */
-  publish(priority, object, options) {
-    var self = this;
-    options = options || {};
-
+  async publish(priority, object, options = {}) {
     // Create 0 date
     var zeroDate = new Date();
     zeroDate.setTime(0);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Insert the new item into the queue
-        yield self.queue.insertOne({
-            startTime: zeroDate
-          , endTime: zeroDate
-          , jobId: new ObjectId()
-          , createdOn: new Date()
-          , priority: priority
-          , payload: object
-        }, options);
-
-        resolve();
-      }).catch(reject);
-    });
+    // Insert the new item into the queue
+    await this.queue.insertOne({
+        startTime: zeroDate
+      , endTime: zeroDate
+      , jobId: new ObjectId()
+      , createdOn: new Date()
+      , priority: priority
+      , payload: object
+    }, options);
   }
 
   /*
    * Fetch the next highest available priority item
    */
-  fetchByPriority(options) {
-    var self = this;
-    options = options || {};
-
+  async fetchByPriority(options = {}) {
     // Set the options
-    options = clone(options);
-    options['sort'] = {priority: -1, createdOn: 1};
-
+    options = Object.assign({}, options, {sort: {priority: -1, createdOn: 1}});
     // Zero date (done so we can test capped collections where documents cannot grow)
     var zeroDate = new Date();
     zeroDate.setTime(0);
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Find one and update, returning a work item
-        var r = yield self.queue.findOneAndUpdate({
-          startTime: zeroDate
-        }, {
-          $set: { startTime: new Date() }
-        }, options);
+    // Find one and update, returning a work item
+    var r = await this.queue.findOneAndUpdate({
+      startTime: zeroDate
+    }, {
+      $set: { startTime: new Date() }
+    }, options);
 
-        if(r.value == null)
-          return reject(new Error('found no message in queue'));
+    if(r.value == null) {
+      throw new Error('found no message in queue');
+    }
 
-        resolve(new Work(self.queue, r.value.jobId, r.value));
-      }).catch(reject);
-    });
+    return new Work(this.queue, r.value.jobId, r.value);
   }
 
   /*
    * Fetch the next item in FIFO fashion (by createdOn timestamp)
    */
-  fetchFIFO(options) {
-    var self = this;
-    options = options || {};
-
+  async fetchFIFO(options = {}) {
     // Zero date (done so we can test capped collections where documents cannot grow)
     var zeroDate = new Date();
     zeroDate.setTime(0);
 
     // Set the options
-    options = clone(options);
-    options.sort = { createdOn: 1 };
+    options = Object.assign({}, options, {sort: {createdOn: 1}});
 
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        // Find one and update, returning a work item
-        var r = yield self.queue.findOneAndUpdate({
-          startTime: zeroDate
-        }, {
-          $set: { startTime: new Date() }
-        }, options);
+    // Find one and update, returning a work item
+    var r = await this.queue.findOneAndUpdate({
+      startTime: zeroDate
+    }, {
+      $set: { startTime: new Date() }
+    }, options);
 
-        if(r.value == null)
-          return reject(new Error('found no message in queue'));
+    if(r.value == null) {
+      throw new Error('found no message in queue');
+    }
 
-        resolve(new Work(self.queue, r.value.jobId, r.value));
-      }).catch(reject);
-    });
+    return new Work(this.queue, r.value.jobId, r.value);
   }
 
   /*
    * Create the optimal indexes for the queries
    */
-  static createOptimalIndexes(collections) {
-    return new Promise(function(resolve, reject) {
-      co(function* () {
-        yield collections['queues'].ensureIndex({startTime:1});
-        yield collections['queues'].ensureIndex({createdOn: 1});
-        yield collections['queues'].ensureIndex({priority:-1, createdOn: 1});
-        yield collections['queues'].ensureIndex({jobId: 1});
-        resolve();
-      }).catch(reject);
-    });
+  static async createOptimalIndexes(collections) {
+    await collections['queues'].ensureIndex({startTime:1});
+    await collections['queues'].ensureIndex({createdOn: 1});
+    await collections['queues'].ensureIndex({priority:-1, createdOn: 1});
+    await collections['queues'].ensureIndex({jobId: 1});
   }
 }
 
